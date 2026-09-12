@@ -1,0 +1,6 @@
+# Abhängigkeiten — werden per "npm install" wiederhergestellt
+node_modules/
+
+# Betriebssystem-/Editor-Dateien
+.DS_Store
+*.swp

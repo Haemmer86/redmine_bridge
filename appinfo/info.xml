@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+<id>redmine_bruecke</id>
+<name>Redmine</name>
+<summary>Tickets, Projekte und Zeiterfassung aus Redmine — direkt in Nextcloud bearbeitbar</summary>
+<description><![CDATA[
+Zeigt Tickets, Projekte und Zeiterfassung einer angebundenen Redmine-Instanz
+direkt in Nextcloud an und macht sie bearbeitbar. Änderungen werden über die
+Redmine-REST-API sofort in Redmine gespeichert — es gibt keine eigene
+Kopie der Daten, Nextcloud fragt bei jedem Aufruf live ab.
+]]></description>
+<version>0.12.1</version>
+<licence>agpl</licence>
+<author>Hammer IT Solutions</author>
+<namespace>RedmineBruecke</namespace>
+<category>organization</category>
+<bugs>https://github.com/hammerits/redmine_bruecke/issues</bugs>
+
+<dependencies>
+<php min-version="8.2" max-version="8.5"/>
+<nextcloud min-version="33" max-version="35"/>
+</dependencies>
+
+<navigations>
+<navigation>
+<id>redmine_bruecke</id>
+<name>Redmine</name>
+<route>redmine_bruecke.page.index</route>
+<icon>app.svg</icon>
+<type>link</type>
+<order>3</order>
+</navigation>
+</navigations>
+
+<settings>
+<admin>OCA\RedmineBruecke\Settings\Admin</admin>
+<admin-section>OCA\RedmineBruecke\Settings\AdminSection</admin-section>
+</settings>
+</info>

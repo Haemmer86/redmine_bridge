@@ -1,0 +1,334 @@
+<script setup>
+import { ref, onMounted, watch } from 'vue'
+import { api } from '../lib/api.js'
+
+const tickets = ref([])
+const gesamt = ref(0)
+const seite = ref(1)
+const status = ref('open')
+const projektFilter = ref('')
+const projekte = ref([])
+const ladend = ref(true)
+const fehler = ref(null)
+
+async function laden() {
+  ladend.value = true
+  fehler.value = null
+  try {
+    const antwort = await api.tickets(status.value, projektFilter.value, seite.value)
+    tickets.value = antwort.tickets
+    gesamt.value = antwort.gesamt
+  } catch (e) {
+    fehler.value = e.message
+  } finally {
+    ladend.value = false
+  }
+}
+
+onMounted(async () => {
+  laden()
+  try {
+    const daten = await api.formulardaten()
+    projekte.value = daten.projekte
+  } catch {
+    // Projektliste ist nur für den Filter — schlägt sie fehl, bleibt der
+    // Filter eben leer, die Ticketliste selbst funktioniert trotzdem.
+  }
+})
+
+watch([status, projektFilter], () => {
+  seite.value = 1
+  laden()
+})
+watch(seite, laden)
+
+function offnen(id) {
+  window.location.hash = `#/tickets/${id}`
+}
+
+// Farblogik nach Bedeutung, nicht nach Zufall: erledigt wirkt beruhigt
+// (grün), neu wirkt aufmerksamkeitsheischend (blau), alles andere neutral.
+function statusFarbe(name) {
+  const n = (name || '').toLowerCase()
+  if (n.includes('erledigt') || n.includes('geschlossen') || n.includes('abgeschlossen')) return 'gruen'
+  if (n.includes('neu')) return 'blau'
+  if (n.includes('bearbeitung') || n.includes('progress')) return 'gelb'
+  return 'grau'
+}
+
+function prioritaetFarbe(name) {
+  const n = (name || '').toLowerCase()
+  if (n.includes('hoch') || n.includes('dringend') || n.includes('sofort')) return 'rot'
+  if (n.includes('niedrig') || n.includes('low')) return 'grau'
+  return 'grau'
+}
+</script>
+
+<template>
+  <div class="rb-seite">
+    <header class="rb-kopf">
+      <h1>Tickets</h1>
+      <div class="rb-kopf-aktionen">
+        <a href="#/projekte/neu" class="rb-knopf-sekundaer-hell">+ Neues Projekt</a>
+        <a href="#/tickets/neu" class="rb-knopf-primaer-hell">+ Neues Ticket</a>
+      </div>
+    </header>
+
+    <section class="rb-karte">
+      <div class="rb-filter">
+        <select v-model="status" class="rb-select">
+          <option value="open">Offen</option>
+          <option value="closed">Erledigt</option>
+          <option value="*">Alle</option>
+        </select>
+        <select v-model="projektFilter" class="rb-select">
+          <option value="">Alle Projekte</option>
+          <option v-for="p in projekte" :key="p.id" :value="p.id">{{ p.name }}</option>
+        </select>
+      </div>
+
+      <div v-if="ladend" class="rb-zustand">
+        <span class="rb-spinner"></span> Tickets werden geladen …
+      </div>
+      <div v-else-if="fehler" class="rb-zustand rb-zustand-fehler">
+        Verbindung zu Redmine fehlgeschlagen: {{ fehler }}
+      </div>
+      <div v-else-if="tickets.length === 0" class="rb-zustand">
+        Keine Tickets in dieser Ansicht. Ändere den Filter oder lege das erste Ticket in Redmine an.
+      </div>
+
+      <table v-else class="rb-tabelle">
+        <thead>
+          <tr>
+            <th class="rb-col-schmal">#</th>
+            <th>Projekt</th>
+            <th>Betreff</th>
+            <th class="rb-col-schmal">Status</th>
+            <th class="rb-col-schmal">Priorität</th>
+            <th>Zugewiesen an</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="t in tickets" :key="t.id" class="rb-zeile" tabindex="0" @click="offnen(t.id)" @keydown.enter="offnen(t.id)">
+            <td class="rb-nummer">#{{ t.id }}</td>
+            <td>{{ t.project?.name }}</td>
+            <td class="rb-betreff">{{ t.subject }}</td>
+            <td><span class="rb-punkt" :class="'rb-punkt-' + statusFarbe(t.status?.name)"></span>{{ t.status?.name }}</td>
+            <td>
+              <span v-if="prioritaetFarbe(t.priority?.name) === 'rot'" class="rb-punkt rb-punkt-rot"></span>
+              {{ t.priority?.name }}
+            </td>
+            <td class="rb-gedaempft">{{ t.assigned_to?.name || '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div v-if="gesamt > 50" class="rb-pagination">
+        <button class="rb-knopf-sekundaer" :disabled="seite === 1" @click="seite--">← Zurück</button>
+        <span class="rb-gedaempft">Seite {{ seite }} von {{ Math.ceil(gesamt / 50) }} · {{ gesamt }} Tickets</span>
+        <button class="rb-knopf-sekundaer" :disabled="seite >= Math.ceil(gesamt / 50)" @click="seite++">Weiter →</button>
+      </div>
+    </section>
+  </div>
+</template>
+
+<style scoped>
+.rb-seite {
+  padding: 32px 40px;
+  max-width: 1500px;
+  margin: 0 auto;
+}
+.rb-kopf {
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.rb-kopf-aktionen {
+  display: flex;
+  gap: 10px;
+}
+.rb-kopf h1 {
+  margin: 0;
+  font-size: 1.5em;
+  /* Läuft über einem Nextcloud-Hintergrundbild — ohne Textschatten
+     verschwindet die Überschrift auf hellen Bildstellen fast völlig. */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  color: #fff;
+}
+.rb-knopf-primaer-hell,
+.rb-knopf-sekundaer-hell {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: var(--border-radius, 6px);
+  text-decoration: none;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+.rb-knopf-primaer-hell {
+  background: var(--color-primary-element, #0069c2);
+  color: #fff;
+}
+.rb-knopf-primaer-hell:hover {
+  filter: brightness(1.1);
+}
+.rb-knopf-sekundaer-hell {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--color-main-text, #222);
+}
+.rb-knopf-sekundaer-hell:hover {
+  background: #fff;
+}
+.rb-karte {
+  background: var(--color-main-background, #fff);
+  border: 1px solid var(--color-border, #e0e0e3);
+  border-radius: var(--border-radius-large, 10px);
+  padding: 20px 24px 8px;
+}
+.rb-filter {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.rb-select {
+  padding: 6px 12px;
+  border-radius: var(--border-radius, 6px);
+  border: 1px solid var(--color-border, #d8d8db);
+  background: var(--color-main-background, #fff);
+  color: var(--color-main-text, #222);
+}
+
+.rb-tabelle {
+  width: 100%;
+  border-collapse: collapse;
+}
+.rb-tabelle th {
+  text-align: left;
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 0.85em;
+  color: var(--color-text-maxcontrast, #767676);
+  border-bottom: 1px solid var(--color-border, #e0e0e3);
+}
+.rb-tabelle td {
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border, #eee);
+  vertical-align: middle;
+  color: var(--color-main-text, #222);
+}
+.rb-col-schmal {
+  width: 1%;
+  white-space: nowrap;
+}
+.rb-nummer {
+  color: var(--color-text-maxcontrast, #767676);
+  font-variant-numeric: tabular-nums;
+}
+.rb-betreff {
+  font-weight: 500;
+}
+.rb-gedaempft {
+  color: var(--color-text-maxcontrast, #767676);
+}
+.rb-zeile {
+  cursor: pointer;
+}
+.rb-zeile:hover,
+.rb-zeile:focus-visible {
+  background: var(--color-background-hover, #f5f5f7);
+}
+.rb-zeile:focus-visible {
+  outline: 2px solid var(--color-primary-element, #0069c2);
+  outline-offset: -2px;
+}
+
+.rb-punkt {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.rb-punkt-gruen { background: #2e7d32; }
+.rb-punkt-blau { background: #0069c2; }
+.rb-punkt-gelb { background: #e5a50a; }
+.rb-punkt-rot { background: #c62828; }
+.rb-punkt-grau { background: #9b9b9b; }
+
+.rb-zustand {
+  padding: 48px 12px;
+  text-align: center;
+  color: var(--color-text-maxcontrast, #767676);
+}
+.rb-zustand-fehler {
+  color: #c62828;
+}
+.rb-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-border, #d8d8db);
+  border-top-color: var(--color-primary-element, #0069c2);
+  border-radius: 50%;
+  animation: rb-drehen 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+@keyframes rb-drehen {
+  to { transform: rotate(360deg); }
+}
+
+.rb-knopf-sekundaer {
+  padding: 6px 14px;
+  border-radius: var(--border-radius, 6px);
+  border: 1px solid var(--color-border, #d8d8db);
+  background: var(--color-main-background, #fff);
+  color: var(--color-main-text, #222);
+  cursor: pointer;
+}
+.rb-knopf-sekundaer:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.rb-pagination {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 0 20px;
+}
+
+/* Unterhalb dieser Breite bleibt für zwei Spalten kein sinnvoller Platz
+   mehr — Tablet im Hochformat und jedes Handy fallen darunter. */
+@media (max-width: 640px) {
+  .rb-seite {
+    padding: 16px;
+  }
+  .rb-karte {
+    padding: 12px 16px 4px;
+    border-radius: var(--border-radius, 6px);
+  }
+  .rb-filter {
+    flex-direction: column;
+  }
+  .rb-select {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  /* Die Tabelle bleibt in ihrer Breite erhalten und scrollt seitlich,
+     statt Spalten bis zur Unleserlichkeit zu quetschen. */
+  .rb-tabelle {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .rb-betreff {
+    white-space: normal;
+    min-width: 140px;
+  }
+}
+</style>
+
