@@ -4,7 +4,7 @@
  * @var \OCP\IL10N $l
  */
 ?>
-<div id="redmine-bruecke-main" style="padding: 40px; max-width: 600px;">
+<div id="redmine-bridge-main" style="padding: 40px; max-width: 600px;">
 	<h1><?php p($l->t('Redmine')); ?></h1>
 
 	<?php if (!$_['konfiguriert']): ?>

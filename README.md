@@ -1,4 +1,4 @@
-# Redmine-Brücke für Nextcloud
+# Redmine Bridge für Nextcloud
 
 Zeigt Tickets und Projekte einer angebundenen [Redmine](https://www.redmine.org/)-Instanz
 direkt in Nextcloud an und macht sie bearbeitbar. Änderungen werden über die
@@ -33,20 +33,20 @@ Kopie der Daten.
 ## Installation
 
 1. Repository in den `custom_apps`-Ordner deiner Nextcloud-Instanz kopieren,
-   als Ordner `redmine_bruecke`:
+   als Ordner `redmine_bridge`:
    ```bash
-   git clone https://github.com/<dein-benutzername>/redmine_bruecke.git \
-     /pfad/zu/nextcloud/custom_apps/redmine_bruecke
+   git clone https://github.com/<dein-benutzername>/redmine_bridge.git \
+     /pfad/zu/nextcloud/custom_apps/redmine_bridge
    ```
    (bei einer Docker-Installation: in den Container kopieren, z. B. mit
    `docker cp`)
 2. Rechte setzen, damit der Webserver-Benutzer (meist `www-data`) lesen kann:
    ```bash
-   chown -R www-data:www-data /pfad/zu/custom_apps/redmine_bruecke
+   chown -R www-data:www-data /pfad/zu/custom_apps/redmine_bridge
    ```
 3. App aktivieren:
    ```bash
-   php occ app:enable redmine_bruecke
+   php occ app:enable redmine_bridge
    ```
 4. In Nextcloud: **Einstellungen → Administration → Redmine** — dort die
    Redmine-Adresse, den API-Schlüssel und den gewünschten Ablage-Wurzelpfad
@@ -61,7 +61,7 @@ npm install
 npm run build
 ```
 
-Das erzeugt `js/redmine_bruecke-main.js` und `css/redmine_bruecke-main.css`.
+Das erzeugt `js/redmine_bridge-main.js` und `css/redmine_bridge-main.css`.
 
 **Wichtig:** Bei jeder Änderung an JS/CSS die Versionsnummer in
 `appinfo/info.xml` erhöhen — sonst liefern Zwischenspeicher (Browser, CDNs

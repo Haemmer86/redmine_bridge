@@ -4,4 +4,4 @@
  * @var \OCP\IL10N $l
  */
 ?>
-<div id="redmine-bruecke-app"></div>
+<div id="redmine-bridge-app"></div>

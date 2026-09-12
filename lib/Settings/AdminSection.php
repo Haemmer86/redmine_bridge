@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace OCA\RedmineBruecke\Settings;
+namespace OCA\RedmineBridge\Settings;
 
-use OCA\RedmineBruecke\AppInfo\Application;
+use OCA\RedmineBridge\AppInfo\Application;
 use OCP\IL10N;
 use OCP\IURLGenerator;
 use OCP\Settings\IIconSection;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace OCA\RedmineBruecke\Service;
+namespace OCA\RedmineBridge\Service;
 
 use OCP\Files\File;
 use OCP\Files\Folder;

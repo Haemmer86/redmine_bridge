@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace OCA\RedmineBruecke\AppInfo;
+namespace OCA\RedmineBridge\AppInfo;
 
 use OCP\AppFramework\App;
 use OCP\AppFramework\Bootstrap\IBootContext;
@@ -20,7 +20,7 @@ use OCP\AppFramework\Bootstrap\IRegistrationContext;
  * Teil des Grundgerüsts.
  */
 class Application extends App implements IBootstrap {
-	public const APP_ID = 'redmine_bruecke';
+	public const APP_ID = 'redmine_bridge';
 
 	// Konfigurationsschlüssel für die Admin-Einstellungen
 	public const CONF_BASIS_URL = 'basis_url';
@@ -36,10 +36,10 @@ class Application extends App implements IBootstrap {
 		// Namensschema hängt an der Konfiguration, nicht am Konstruktor der
 		// aufrufenden Klasse — deshalb hier manuell verdrahtet, statt
 		// Nextcloud die automatische Auflösung zu überlassen.
-		$context->registerService(\OCA\RedmineBruecke\Service\Namensschema::class, static function ($c): \OCA\RedmineBruecke\Service\Namensschema {
+		$context->registerService(\OCA\RedmineBridge\Service\Namensschema::class, static function ($c): \OCA\RedmineBridge\Service\Namensschema {
 			$config = $c->get(\OCP\IConfig::class);
 
-			return new \OCA\RedmineBruecke\Service\Namensschema(
+			return new \OCA\RedmineBridge\Service\Namensschema(
 				trim($config->getAppValue(self::APP_ID, self::CONF_BASIS_PFAD, self::STANDARD_BASIS_PFAD), '/'),
 			);
 		});

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace OCA\RedmineBruecke\Service;
+namespace OCA\RedmineBridge\Service;
 
-use OCA\RedmineBruecke\AppInfo\Application;
+use OCA\RedmineBridge\AppInfo\Application;
 use OCP\Http\Client\IClientService;
 use OCP\IConfig;
 

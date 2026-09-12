@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace OCA\RedmineBruecke\Settings;
+namespace OCA\RedmineBridge\Settings;
 
-use OCA\RedmineBruecke\AppInfo\Application;
-use OCA\RedmineBruecke\Service\RedmineClient;
+use OCA\RedmineBridge\AppInfo\Application;
+use OCA\RedmineBridge\Service\RedmineClient;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\IConfig;
 use OCP\IRequest;
@@ -47,7 +47,7 @@ class Admin implements ISettings {
 			'hatSchluessel' => $hatSchluessel,
 			'basisPfad' => $basisPfad,
 			'verbindung' => $verbindung,
-			'actionUrl' => $this->url->linkToRoute('redmine_bruecke.settings.speichern'),
+			'actionUrl' => $this->url->linkToRoute('redmine_bridge.settings.speichern'),
 			'requesttoken' => Util::callRegister(),
 		]);
 	}

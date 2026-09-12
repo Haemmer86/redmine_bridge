@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace OCA\RedmineBruecke\Service;
+namespace OCA\RedmineBridge\Service;
 
 /**
  * Bildet Ordnernamen für die Redmine-Ticket-Ablage.

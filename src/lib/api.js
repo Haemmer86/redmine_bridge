@@ -7,9 +7,9 @@
  */
 function url(pfad) {
   if (typeof window !== 'undefined' && window.OC && typeof window.OC.generateUrl === 'function') {
-    return window.OC.generateUrl('/apps/redmine_bruecke' + pfad)
+    return window.OC.generateUrl('/apps/redmine_bridge' + pfad)
   }
-  return '/apps/redmine_bruecke' + pfad
+  return '/apps/redmine_bridge' + pfad
 }
 
 function requestToken() {

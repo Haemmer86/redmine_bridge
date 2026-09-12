@@ -1,21 +1,25 @@
 <?xml version="1.0"?>
 <info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
-<id>redmine_bruecke</id>
-<name>Redmine</name>
-<summary>Tickets, Projekte und Zeiterfassung aus Redmine — direkt in Nextcloud bearbeitbar</summary>
+<id>redmine_bridge</id>
+<name>Redmine Bridge</name>
+<summary>Tickets und Projekte aus Redmine — direkt in Nextcloud anzeigen und bearbeiten</summary>
 <description><![CDATA[
-Zeigt Tickets, Projekte und Zeiterfassung einer angebundenen Redmine-Instanz
-direkt in Nextcloud an und macht sie bearbeitbar. Änderungen werden über die
+Zeigt Tickets und Projekte einer angebundenen Redmine-Instanz direkt in
+Nextcloud an und macht sie bearbeitbar. Änderungen werden über die
 Redmine-REST-API sofort in Redmine gespeichert — es gibt keine eigene
 Kopie der Daten, Nextcloud fragt bei jedem Aufruf live ab.
+
+Zusätzlich: automatische Ordnerablage je Ticket, Datei-/Link-Ablage,
+ein chronologischer Gesprächsverlauf (Telefonnotizen und zugeordnete
+E-Mails) sowie Schlagworte über Nextclouds eigenes Tag-System.
 ]]></description>
-<version>0.12.1</version>
+<version>0.13.0</version>
 <licence>agpl</licence>
 <author>Hammer IT Solutions</author>
-<namespace>RedmineBruecke</namespace>
+<namespace>RedmineBridge</namespace>
 <category>organization</category>
-<bugs>https://github.com/hammerits/redmine_bruecke/issues</bugs>
+<bugs>https://github.com/hammerits/redmine_bridge/issues</bugs>
 
 <dependencies>
 <php min-version="8.2" max-version="8.5"/>
@@ -24,9 +28,9 @@ Kopie der Daten, Nextcloud fragt bei jedem Aufruf live ab.
 
 <navigations>
 <navigation>
-<id>redmine_bruecke</id>
+<id>redmine_bridge</id>
 <name>Redmine</name>
-<route>redmine_bruecke.page.index</route>
+<route>redmine_bridge.page.index</route>
 <icon>app.svg</icon>
 <type>link</type>
 <order>3</order>
@@ -34,7 +38,7 @@ Kopie der Daten, Nextcloud fragt bei jedem Aufruf live ab.
 </navigations>
 
 <settings>
-<admin>OCA\RedmineBruecke\Settings\Admin</admin>
-<admin-section>OCA\RedmineBruecke\Settings\AdminSection</admin-section>
+<admin>OCA\RedmineBridge\Settings\Admin</admin>
+<admin-section>OCA\RedmineBridge\Settings\AdminSection</admin-section>
 </settings>
 </info>

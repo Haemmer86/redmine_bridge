@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace OCA\RedmineBruecke\Controller;
+namespace OCA\RedmineBridge\Controller;
 
-use OCA\RedmineBruecke\AppInfo\Application;
-use OCA\RedmineBruecke\Service\AblageService;
-use OCA\RedmineBruecke\Service\RedmineClient;
-use OCA\RedmineBruecke\Service\TagService;
+use OCA\RedmineBridge\AppInfo\Application;
+use OCA\RedmineBridge\Service\AblageService;
+use OCA\RedmineBridge\Service\RedmineClient;
+use OCA\RedmineBridge\Service\TagService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\FrontpageRoute;

@@ -38,7 +38,7 @@ const route = computed(() => {
    Behälter, den Nextcloud selbst um die App herum aufbaut. Ohne das bleibt
    der Inhalt unterhalb der Bildschirmhöhe unerreichbar — die Seite meldet
    keinen Fehler, man kommt einfach nicht mit der Maus/dem Rad dorthin. */
-#redmine-bruecke-app,
+#redmine-bridge-app,
 #app-content,
 #content {
   height: 100%;

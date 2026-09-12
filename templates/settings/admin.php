@@ -4,7 +4,7 @@
  * @var \OCP\IL10N $l
  */
 ?>
-<div id="redmine-bruecke-settings" class="section">
+<div id="redmine-bridge-settings" class="section">
 	<h2><?php p($l->t('Redmine — Verbindung')); ?></h2>
 	<p class="settings-hint">
 		<?php p($l->t('Adresse und API-Schlüssel deiner Redmine-Instanz. Den API-Schlüssel findest du in Redmine unter "Mein Konto" → "API-Zugriffsschlüssel anzeigen".')); ?>

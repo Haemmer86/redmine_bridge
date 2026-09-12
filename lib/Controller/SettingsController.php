@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace OCA\RedmineBruecke\Controller;
+namespace OCA\RedmineBridge\Controller;
 
-use OCA\RedmineBruecke\AppInfo\Application;
+use OCA\RedmineBridge\AppInfo\Application;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\FrontpageRoute;
 use OCP\AppFramework\Http\RedirectResponse;
