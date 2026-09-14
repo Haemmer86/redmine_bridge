@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <circle cx="16" cy="16" r="15" fill="none" stroke="currentColor" stroke-width="2"/>
-  <path d="M10 20 L10 12 L16 12 Q19 12 19 15 Q19 17.5 16.5 18 L20 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <line x1="10" y1="18" x2="16" y2="18" stroke="currentColor" stroke-width="2"/>
+  <path fill="#000000" fill-rule="evenodd" d="
+    M16 1 C7.716 1 1 7.716 1 16 C1 24.284 7.716 31 16 31 C24.284 31 31 24.284 31 16
+    C31 7.716 24.284 1 16 1 Z M16 4 C22.627 4 28 9.373 28 16 C28 22.627 22.627 28 16 28
+    C9.373 28 4 22.627 4 16 C4 9.373 9.373 4 16 4 Z
+    M10.5 10.5 L10.5 21.5 L13.3 21.5 L13.3 17 L15.4 17
+    L18.6 21.5 L21.8 21.5 L18.2 16.6
+    C19.9 16.05 21 14.7 21 12.9 C21 10.4 19.05 10.5 16.5 10.5 Z
+    M13.3 12.9 L16.2 12.9 C17.5 12.9 18.1 13.4 18.1 14.4 C18.1 15.4 17.5 15.9 16.2 15.9 L13.3 15.9 Z
+  "/>
 </svg>
