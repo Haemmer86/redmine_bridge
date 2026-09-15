@@ -213,6 +213,31 @@ function vorschauSchliessen() {
   vorschauDatei.value = null
 }
 
+// ─── Datei/Notiz/Link aus der Ablage löschen ────────────────────────────
+
+async function dateiLoeschen(datei) {
+  const anzeigename = datei.notiz
+    ? (datei.notiz.betreff || datei.notiz.art)
+    : datei.url
+      ? datei.name.replace(/\.url$/i, '')
+      : datei.name
+  if (!window.confirm(`"${anzeigename}" wirklich löschen? Das kann nicht rückgängig gemacht werden.`)) {
+    return
+  }
+  fehler.value = null
+  try {
+    const antwort = await api.dateiLoeschen(props.id, datei.id)
+    ordnerPfad.value = antwort.ordnerPfad
+    ordnerFehler.value = antwort.ordnerFehler
+    dateien.value = antwort.dateien
+    if (vorschauDatei.value?.id === datei.id) {
+      vorschauSchliessen()
+    }
+  } catch (e) {
+    fehler.value = 'Löschen fehlgeschlagen: ' + e.message
+  }
+}
+
 function vorschauGrossFehlgeschlagen() {
   vorschauGrossFehler.value = true
 }
@@ -290,6 +315,7 @@ async function nachrichtZuordnen(nachricht) {
       nachricht.subject || '(kein Betreff)',
       nachricht.previewText || '',
       datumIso,
+      nachricht.messageId || '',
     )
     ordnerPfad.value = antwort.ordnerPfad
     ordnerFehler.value = antwort.ordnerFehler
@@ -516,20 +542,23 @@ async function tagEntfernen(dateiId, tagId) {
               <h3 class="rb-unterueberschrift">Gesprächsverlauf</h3>
               <ul class="rb-dateiliste">
                 <li v-for="d in verlaufEintraege" :key="d.id" class="rb-dateizeile">
-                  <button
-                    type="button"
-                    class="rb-dateizeile-knopf"
-                    title="Vorschau öffnen"
-                    @click="vorschauOeffnen(d)"
-                  >
-                    <span class="rb-dateisymbol-klein">{{ d.eml ? '✉️' : d.notiz.art === 'Telefonat' ? '📞' : d.notiz.art === 'E-Mail' ? '✉️' : '📝' }}</span>
-                    <span class="rb-dateiname" :title="d.name">
-                      <template v-if="d.eml">{{ d.eml.betreff || d.name }}</template>
-                      <template v-else-if="d.notiz.art === 'E-Mail'">{{ d.notiz.betreff }}</template>
-                      <template v-else>{{ d.notiz.art }}<span v-if="d.notiz.ansprechpartner"> – {{ d.notiz.ansprechpartner }}</span></template>
-                    </span>
-                    <span class="rb-gedaempft rb-dateigroesse">{{ datumFormatieren(d) }}</span>
-                  </button>
+                  <div class="rb-dateizeile-reihe">
+                    <button
+                      type="button"
+                      class="rb-dateizeile-knopf"
+                      title="Vorschau öffnen"
+                      @click="vorschauOeffnen(d)"
+                    >
+                      <span class="rb-dateisymbol-klein">{{ d.eml ? '✉️' : d.notiz.art === 'Telefonat' ? '📞' : d.notiz.art === 'E-Mail' ? '✉️' : '📝' }}</span>
+                      <span class="rb-dateiname" :title="d.name">
+                        <template v-if="d.eml">{{ d.eml.betreff || d.name }}</template>
+                        <template v-else-if="d.notiz.art === 'E-Mail'">{{ d.notiz.betreff }}</template>
+                        <template v-else>{{ d.notiz.art }}<span v-if="d.notiz.ansprechpartner"> – {{ d.notiz.ansprechpartner }}</span></template>
+                      </span>
+                      <span class="rb-gedaempft rb-dateigroesse">{{ datumFormatieren(d) }}</span>
+                    </button>
+                    <button type="button" class="rb-datei-loeschen" title="Löschen" @click="dateiLoeschen(d)">🗑</button>
+                  </div>
 
                   <div class="rb-tag-bereich">
                     <span v-for="t in d.tags" :key="t.id" class="rb-tag-chip">
@@ -558,16 +587,19 @@ async function tagEntfernen(dateiId, tagId) {
             <h3 v-if="verlaufEintraege.length" class="rb-unterueberschrift">Weitere Dateien</h3>
             <ul v-if="weitereDateien.length" class="rb-dateiliste">
               <li v-for="d in weitereDateien" :key="d.id" class="rb-dateizeile">
-                <button
-                  type="button"
-                  class="rb-dateizeile-knopf"
-                  :title="d.url ? 'Link öffnen' : 'Vorschau öffnen'"
-                  @click="d.url ? linkOeffnen(d.url) : vorschauOeffnen(d)"
-                >
-                  <span class="rb-dateisymbol-klein">{{ d.url ? '🔗' : dateisymbol(d.mime) }}</span>
-                  <span class="rb-dateiname" :title="d.name">{{ d.url ? d.name.replace(/\.url$/i, '') : d.name }}</span>
-                  <span v-if="!d.url" class="rb-gedaempft rb-dateigroesse">{{ groesseFormatieren(d.groesse) }}</span>
-                </button>
+                <div class="rb-dateizeile-reihe">
+                  <button
+                    type="button"
+                    class="rb-dateizeile-knopf"
+                    :title="d.url ? 'Link öffnen' : 'Vorschau öffnen'"
+                    @click="d.url ? linkOeffnen(d.url) : vorschauOeffnen(d)"
+                  >
+                    <span class="rb-dateisymbol-klein">{{ d.url ? '🔗' : dateisymbol(d.mime) }}</span>
+                    <span class="rb-dateiname" :title="d.name">{{ d.url ? d.name.replace(/\.url$/i, '') : d.name }}</span>
+                    <span v-if="!d.url" class="rb-gedaempft rb-dateigroesse">{{ groesseFormatieren(d.groesse) }}</span>
+                  </button>
+                  <button type="button" class="rb-datei-loeschen" title="Löschen" @click="dateiLoeschen(d)">🗑</button>
+                </div>
 
                 <div class="rb-tag-bereich">
                   <span v-for="t in d.tags" :key="t.id" class="rb-tag-chip">
@@ -903,11 +935,17 @@ textarea.rb-eingabe {
 .rb-dateizeile:last-child {
   border-bottom: none;
 }
+.rb-dateizeile-reihe {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 .rb-dateizeile-knopf {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: none;
   border: none;
   padding: 4px 2px;
@@ -917,6 +955,20 @@ textarea.rb-eingabe {
 }
 .rb-dateizeile-knopf:hover {
   background: var(--color-background-hover, #f5f5f7);
+}
+.rb-datei-loeschen {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--border-radius, 6px);
+  opacity: 0.5;
+  font-size: 0.9em;
+}
+.rb-datei-loeschen:hover {
+  opacity: 1;
+  background: #fdecea;
 }
 .rb-dateisymbol-klein {
   font-size: 1.1em;

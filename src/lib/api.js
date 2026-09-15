@@ -70,7 +70,9 @@ export const api = {
 
   urlAblegen: (id, bezeichnung, url) => anfrage('POST', `/api/tickets/${id}/urls`, { bezeichnung, url }),
   notizAblegen: (id, art, text, ansprechpartner) => anfrage('POST', `/api/tickets/${id}/notizen`, { art, text, ansprechpartner }),
-  mailVerlaufAblegen: (id, von, betreff, text, datum) => anfrage('POST', `/api/tickets/${id}/mail-verlauf`, { von, betreff, text, datum }),
+  mailVerlaufAblegen: (id, von, betreff, text, datum, nachrichtKennung) =>
+    anfrage('POST', `/api/tickets/${id}/mail-verlauf`, { von, betreff, text, datum, nachrichtKennung }),
+  dateiLoeschen: (id, dateiId) => anfrage('DELETE', `/api/tickets/${id}/dateien/${dateiId}`),
   alleTags: () => anfrage('GET', '/api/tags'),
   tagSetzen: (dateiId, name) => anfrage('POST', `/api/dateien/${dateiId}/tags`, { name }),
   tagEntfernen: (dateiId, tagId) => anfrage('DELETE', `/api/dateien/${dateiId}/tags/${tagId}`),

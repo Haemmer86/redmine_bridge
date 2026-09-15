@@ -594,12 +594,16 @@ class ApiController extends Controller {
 	 */
 	#[NoAdminRequired]
 	#[FrontpageRoute(verb: 'POST', url: '/api/tickets/{id}/mail-verlauf')]
-	public function mailVerlaufAblegen(int $id, string $von, string $betreff, string $text, string $datum = ''): DataResponse {
-		return $this->geschuetzterAufruf(function () use ($id, $von, $betreff, $text, $datum) {
+	public function mailVerlaufAblegen(int $id, string $von, string $betreff, string $text, string $datum = '', string $nachrichtKennung = ''): DataResponse {
+		return $this->geschuetzterAufruf(function () use ($id, $von, $betreff, $text, $datum, $nachrichtKennung) {
 			$antwort = $this->redmine->anfrage('GET', "/issues/{$id}.json");
 			$ticket = $antwort['issue'] ?? null;
 			if ($ticket === null) {
 				throw new \RuntimeException('Ticket nicht gefunden.');
+			}
+
+			if ($nachrichtKennung !== '' && $this->ablage->mailBereitsZugeordnet($ticket, $this->benutzerId(), $nachrichtKennung)) {
+				throw new \RuntimeException('Diese E-Mail ist diesem Ticket bereits zugeordnet.');
 			}
 
 			$zeitpunkt = null;
@@ -618,7 +622,27 @@ class ApiController extends Controller {
 				$betreff !== '' ? $betreff : '(kein Betreff)',
 				$text,
 				$zeitpunkt,
+				$nachrichtKennung,
 			);
+
+			return $this->ablageInfo($ticket);
+		});
+	}
+
+	/**
+	 * Löscht eine Datei aus der Ticket-Ablage.
+	 */
+	#[NoAdminRequired]
+	#[FrontpageRoute(verb: 'DELETE', url: '/api/tickets/{id}/dateien/{dateiId}')]
+	public function dateiLoeschen(int $id, int $dateiId): DataResponse {
+		return $this->geschuetzterAufruf(function () use ($id, $dateiId) {
+			$antwort = $this->redmine->anfrage('GET', "/issues/{$id}.json");
+			$ticket = $antwort['issue'] ?? null;
+			if ($ticket === null) {
+				throw new \RuntimeException('Ticket nicht gefunden.');
+			}
+
+			$this->ablage->dateiLoeschen($dateiId, $this->benutzerId());
 
 			return $this->ablageInfo($ticket);
 		});

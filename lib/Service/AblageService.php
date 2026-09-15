@@ -187,6 +187,9 @@ class AblageService {
 	 * @param ?\DateTimeImmutable $datum Das tatsächliche Sendedatum der
 	 *   E-Mail, nicht der Zeitpunkt der Zuordnung — sonst würde eine alte
 	 *   E-Mail im Verlauf so aussehen, als wäre sie gerade eben eingegangen.
+	 * @param string $nachrichtKennung Die RFC822-Message-ID der E-Mail
+	 *   (eindeutig je Nachricht) — wird mit abgelegt, damit
+	 *   {@see mailBereitsZugeordnet()} doppelte Zuordnungen erkennen kann.
 	 */
 	public function mailVerlaufAblegen(
 		array $ticket,
@@ -195,6 +198,7 @@ class AblageService {
 		string $betreff,
 		string $text,
 		?\DateTimeImmutable $datum,
+		string $nachrichtKennung = '',
 	): File {
 		$ordner = $this->ordnerFuerTicket($ticket, $userId);
 		$zeitpunkt = $datum ?? new \DateTimeImmutable();
@@ -211,9 +215,65 @@ class AblageService {
 		$inhalt .= 'Datum: ' . $zeitpunkt->format('Y-m-d H:i') . "\r\n";
 		$inhalt .= 'Von: ' . $von . "\r\n";
 		$inhalt .= 'Betreff: ' . $betreff . "\r\n";
+		if ($nachrichtKennung !== '') {
+			$inhalt .= 'Nachricht-Kennung: ' . $nachrichtKennung . "\r\n";
+		}
 		$inhalt .= "\r\n" . $text . "\r\n";
 
 		return $ordner->newFile($name, $inhalt);
+	}
+
+	/**
+	 * Prüft, ob eine E-Mail (per eindeutiger Nachricht-Kennung) diesem
+	 * Ticket bereits zugeordnet wurde — verhindert doppelte Einträge im
+	 * Gesprächsverlauf, wenn dieselbe Nachricht versehentlich zweimal aus
+	 * dem Posteingang zugeordnet wird.
+	 */
+	public function mailBereitsZugeordnet(array $ticket, string $userId, string $nachrichtKennung): bool {
+		if ($nachrichtKennung === '') {
+			return false;
+		}
+
+		$ordner = $this->ordnerFuerTicket($ticket, $userId);
+		foreach ($ordner->getDirectoryListing() as $knoten) {
+			if (!($knoten instanceof File) || !str_ends_with(strtolower($knoten->getName()), '.txt')) {
+				continue;
+			}
+			try {
+				$inhalt = $knoten->getContent();
+			} catch (\Throwable) {
+				continue;
+			}
+			if (str_contains($inhalt, 'Nachricht-Kennung: ' . $nachrichtKennung)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Löscht eine Datei aus der Ablage — auf die eigene Ticket-Ablage
+	 * beschränkt, damit über eine falsche/manipulierte ID nicht versehentlich
+	 * irgendeine andere Datei des Benutzers gelöscht werden kann.
+	 */
+	public function dateiLoeschen(int $dateiId, string $userId): void {
+		$benutzerOrdner = $this->rootFolder->getUserFolder($userId);
+		$treffer = $benutzerOrdner->getById($dateiId);
+		if (empty($treffer)) {
+			throw new \RuntimeException('Datei wurde nicht gefunden.');
+		}
+		$knoten = $treffer[0];
+		if (!($knoten instanceof File)) {
+			throw new \RuntimeException('Nur Dateien können hier gelöscht werden.');
+		}
+
+		$erlaubterPfad = rtrim($benutzerOrdner->getPath(), '/') . '/' . $this->schema->basisPfad() . '/';
+		if (!str_starts_with($knoten->getPath() . '/', $erlaubterPfad)) {
+			throw new \RuntimeException('Diese Datei liegt außerhalb der Ticket-Ablage und wird hier nicht gelöscht.');
+		}
+
+		$knoten->delete();
 	}
 
 	/**
