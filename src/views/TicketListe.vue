@@ -135,8 +135,7 @@ function prioritaetFarbe(name) {
 <style scoped>
 .rb-seite {
   padding: 32px 40px;
-  max-width: 1500px;
-  margin: 0 auto;
+  max-width: none;
 }
 .rb-kopf {
   margin-bottom: 16px;

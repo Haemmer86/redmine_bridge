@@ -135,6 +135,7 @@ class ApiController extends Controller {
 					'name' => $datei->getName(),
 					'groesse' => $datei->getSize(),
 					'mime' => $datei->getMimeType(),
+					'geaendert' => $datei->getMTime(),
 					'url' => null,
 					'eml' => null,
 					'notiz' => null,

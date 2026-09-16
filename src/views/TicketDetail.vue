@@ -265,7 +265,12 @@ const verlaufEintraege = computed(() =>
       return db.localeCompare(da) // neueste zuerst
     }),
 )
-const weitereDateien = computed(() => dateien.value.filter((d) => !d.eml && !d.notiz))
+const weitereDateien = computed(() =>
+  dateien.value
+    .filter((d) => !d.eml && !d.notiz)
+    .slice()
+    .sort((a, b) => (b.geaendert || 0) - (a.geaendert || 0)), // neueste (zuletzt hochgeladen/geändert) zuerst
+)
 
 // ─── Aus Posteingang zuordnen (experimentell, siehe mailApi.js) ─────────
 
@@ -756,8 +761,7 @@ async function tagEntfernen(dateiId, tagId) {
 <style scoped>
 .rb-seite {
   padding: 32px 40px;
-  max-width: 1300px;
-  margin: 0 auto;
+  max-width: none;
 }
 .rb-zurueck {
   display: inline-block;

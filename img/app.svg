@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <path fill="#000000" fill-rule="evenodd" d="
+  <path fill="#ffffff" fill-rule="evenodd" d="
     M16 1 C7.716 1 1 7.716 1 16 C1 24.284 7.716 31 16 31 C24.284 31 31 24.284 31 16
     C31 7.716 24.284 1 16 1 Z M16 4 C22.627 4 28 9.373 28 16 C28 22.627 22.627 28 16 28
     C9.373 28 4 22.627 4 16 C4 9.373 9.373 4 16 4 Z
