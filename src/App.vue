@@ -48,8 +48,11 @@ const route = computed(() => {
 /* Nextclouds eigenes Seitengerüst begrenzt den Inhaltsbereich mancher Apps
    auf eine feste Höchstbreite (für Lesbarkeit bei reinen Textseiten gedacht)
    — für unsere tabellen-/formularlastige Oberfläche wollen wir stattdessen
-   die volle verfügbare Breite. Mehrere mögliche Behälter-Klassen abdecken,
-   da sich die genaue Bezeichnung je nach Nextcloud-Version unterscheiden kann. */
+   die volle verfügbare Breite. #content.app-redmine_bridge (ID + eigene
+   App-Klasse kombiniert) hat höhere Spezifität als Nextclouds allgemeine
+   "#content"-Regel und gewinnt deshalb zuverlässig, unabhängig davon, in
+   welcher Reihenfolge die Stylesheets geladen werden. */
+#content.app-redmine_bridge,
 #app-content,
 #app-content-vue,
 #content-vue,
