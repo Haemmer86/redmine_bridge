@@ -61,4 +61,13 @@ main {
   max-width: none !important;
   width: 100% !important;
 }
+
+/* Falls der Elternbereich mit Flexbox arbeitet, streckt sich ein Kind ohne
+   eigene Breitenangabe nicht automatisch mit — das hier zwingt unseren
+   eingehängten Bereich, den verfügbaren Platz tatsächlich auszufüllen,
+   statt sich nur an seinem eigenen Inhalt zu orientieren. */
+#redmine-bridge-app {
+  width: 100% !important;
+  flex: 1 1 auto !important;
+}
 </style>
