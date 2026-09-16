@@ -30,6 +30,6 @@ class AdminSection implements IIconSection {
 	}
 
 	public function getIcon(): string {
-		return $this->url->imagePath(Application::APP_ID, 'app.svg');
+		return $this->url->imagePath(Application::APP_ID, 'redmine-symbol.svg');
 	}
 }

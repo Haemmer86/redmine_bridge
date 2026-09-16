@@ -133,6 +133,15 @@ function groesseFormatieren(bytes) {
   return `${Math.round(bytes / 1024)} KB`
 }
 
+// Zeigt an, wann eine Datei zuletzt abgelegt/geändert wurde — "geaendert"
+// kommt vom Server als Unix-Zeitstempel (Sekunden), daher die *1000 für JS.
+function hochladeDatumFormatieren(zeitstempel) {
+  if (!zeitstempel) return ''
+  const dt = new Date(zeitstempel * 1000)
+  const zweistellig = (n) => String(n).padStart(2, '0')
+  return `${dt.getFullYear()}-${zweistellig(dt.getMonth() + 1)}-${zweistellig(dt.getDate())} ${zweistellig(dt.getHours())}:${zweistellig(dt.getMinutes())}`
+}
+
 // Öffnet den Ablage-Ordner direkt in Nextclouds eigener Dateien-App, in
 // einem neuen Tab — der "dir"-Parameter ist dort seit jeher der Weg, eine
 // bestimmte Stelle im Dateibaum zu adressieren.
@@ -601,7 +610,9 @@ async function tagEntfernen(dateiId, tagId) {
                   >
                     <span class="rb-dateisymbol-klein">{{ d.url ? '🔗' : dateisymbol(d.mime) }}</span>
                     <span class="rb-dateiname" :title="d.name">{{ d.url ? d.name.replace(/\.url$/i, '') : d.name }}</span>
-                    <span v-if="!d.url" class="rb-gedaempft rb-dateigroesse">{{ groesseFormatieren(d.groesse) }}</span>
+                    <span v-if="!d.url" class="rb-gedaempft rb-dateigroesse">
+                      {{ groesseFormatieren(d.groesse) }} · {{ hochladeDatumFormatieren(d.geaendert) }}
+                    </span>
                   </button>
                   <button type="button" class="rb-datei-loeschen" title="Löschen" @click="dateiLoeschen(d)">🗑</button>
                 </div>

@@ -14,7 +14,7 @@ Zusätzlich: automatische Ordnerablage je Ticket, Datei-/Link-Ablage,
 ein chronologischer Gesprächsverlauf (Telefonnotizen und zugeordnete
 E-Mails) sowie Schlagworte über Nextclouds eigenes Tag-System.
 ]]></description>
-<version>0.15.0</version>
+<version>0.15.1</version>
 <licence>agpl</licence>
 <author>Hammer IT Solutions</author>
 <namespace>RedmineBridge</namespace>
@@ -31,7 +31,7 @@ E-Mails) sowie Schlagworte über Nextclouds eigenes Tag-System.
 <id>redmine_bridge</id>
 <name>Redmine</name>
 <route>redmine_bridge.page.index</route>
-<icon>app.svg</icon>
+<icon>redmine-symbol.svg</icon>
 <type>link</type>
 <order>3</order>
 </navigation>
