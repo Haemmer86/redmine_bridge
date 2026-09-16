@@ -44,4 +44,18 @@ const route = computed(() => {
   height: 100%;
   overflow-y: auto !important;
 }
+
+/* Nextclouds eigenes Seitengerüst begrenzt den Inhaltsbereich mancher Apps
+   auf eine feste Höchstbreite (für Lesbarkeit bei reinen Textseiten gedacht)
+   — für unsere tabellen-/formularlastige Oberfläche wollen wir stattdessen
+   die volle verfügbare Breite. Mehrere mögliche Behälter-Klassen abdecken,
+   da sich die genaue Bezeichnung je nach Nextcloud-Version unterscheiden kann. */
+#app-content,
+#app-content-vue,
+#content-vue,
+.app-content,
+main {
+  max-width: none !important;
+  width: 100% !important;
+}
 </style>
