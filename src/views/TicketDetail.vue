@@ -552,6 +552,75 @@ async function tagEntfernen(dateiId, tagId) {
               📁 Ordner in Dateien öffnen
             </a>
 
+            <div class="rb-ablage-aktionen">
+              <label class="rb-hochladen" :class="{ 'rb-hochladen-aktiv': hochladeLaeuft }">
+                <span v-if="hochladeLaeuft"><span class="rb-spinner"></span> Wird hochgeladen …</span>
+                <span v-else>+ Datei ablegen</span>
+                <input ref="dateiInput" type="file" :disabled="hochladeLaeuft" class="rb-datei-input" @change="dateiAusgewaehlt">
+              </label>
+
+              <button v-if="!linkFormularOffen" type="button" class="rb-hochladen" @click="linkFormularOffen = true">
+                + Link ablegen
+              </button>
+              <div v-else class="rb-link-formular">
+                <input v-model="linkBezeichnung" type="text" class="rb-eingabe" placeholder="Bezeichnung (z. B. Rechnung 2026-042)">
+                <input v-model="linkUrl" type="url" class="rb-eingabe" placeholder="https://paperless.example.com/documents/...">
+                <div class="rb-link-formular-aktionen">
+                  <button type="button" class="rb-knopf-sekundaer" @click="linkFormularOffen = false">Abbrechen</button>
+                  <button type="button" class="rb-knopf-primaer" :disabled="linkSpeichernLaeuft" @click="linkSpeichern">
+                    {{ linkSpeichernLaeuft ? 'Speichert …' : 'Speichern' }}
+                  </button>
+                </div>
+              </div>
+
+              <button v-if="!notizFormularOffen" type="button" class="rb-hochladen" @click="notizFormularOffen = true">
+                + Telefonat / Notiz
+              </button>
+              <div v-else class="rb-link-formular">
+                <select v-model="notizArt" class="rb-eingabe">
+                  <option value="Telefonat">Telefonat</option>
+                  <option value="Notiz">Notiz</option>
+                </select>
+                <input v-model="notizAnsprechpartner" type="text" class="rb-eingabe" placeholder="Ansprechpartner (optional)">
+                <textarea v-model="notizText" rows="4" class="rb-eingabe" placeholder="Was wurde besprochen?"></textarea>
+                <div class="rb-link-formular-aktionen">
+                  <button type="button" class="rb-knopf-sekundaer" @click="notizFormularOffen = false">Abbrechen</button>
+                  <button type="button" class="rb-knopf-primaer" :disabled="notizSpeichernLaeuft" @click="notizSpeichern">
+                    {{ notizSpeichernLaeuft ? 'Speichert …' : 'Speichern' }}
+                  </button>
+                </div>
+              </div>
+
+              <button v-if="!posteingangOffen" type="button" class="rb-hochladen" @click="posteingangOeffnen">
+                📧 Aus Posteingang zuordnen
+              </button>
+              <div v-else class="rb-link-formular">
+                <div class="rb-postfach-kopf">
+                  <span>Posteingang</span>
+                  <button type="button" class="rb-tag-entfernen" title="Schließen" @click="posteingangOffen = false">×</button>
+                </div>
+                <p v-if="postfachLaeuft" class="rb-gedaempft"><span class="rb-spinner"></span> Lädt …</p>
+                <p v-else-if="postfachFehler" class="rb-meldung rb-meldung-fehler">{{ postfachFehler }}</p>
+                <p v-else-if="!postfachNachrichten.length" class="rb-gedaempft">Keine Nachrichten gefunden.</p>
+                <ul v-else class="rb-postfachliste">
+                  <li v-for="n in postfachNachrichten" :key="n.databaseId" class="rb-postfachzeile">
+                    <div class="rb-postfachzeile-info">
+                      <span class="rb-dateiname">{{ n.subject || '(kein Betreff)' }}</span>
+                      <span class="rb-gedaempft rb-postfach-absender">{{ postfachAbsender(n) }}</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="rb-knopf-sekundaer"
+                      :disabled="zuordnenLaeuftFuer === n.databaseId"
+                      @click="nachrichtZuordnen(n)"
+                    >
+                      {{ zuordnenLaeuftFuer === n.databaseId ? '…' : 'Zuordnen' }}
+                    </button>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
             <template v-if="verlaufEintraege.length">
               <h3 class="rb-unterueberschrift">Gesprächsverlauf</h3>
               <ul class="rb-dateiliste">
@@ -646,75 +715,6 @@ async function tagEntfernen(dateiId, tagId) {
             <datalist id="rb-tag-vorschlaege">
               <option v-for="name in alleTagNamen" :key="name" :value="name"></option>
             </datalist>
-
-            <div class="rb-ablage-aktionen">
-              <label class="rb-hochladen" :class="{ 'rb-hochladen-aktiv': hochladeLaeuft }">
-                <span v-if="hochladeLaeuft"><span class="rb-spinner"></span> Wird hochgeladen …</span>
-                <span v-else>+ Datei ablegen</span>
-                <input ref="dateiInput" type="file" :disabled="hochladeLaeuft" class="rb-datei-input" @change="dateiAusgewaehlt">
-              </label>
-
-              <button v-if="!linkFormularOffen" type="button" class="rb-hochladen" @click="linkFormularOffen = true">
-                + Link ablegen
-              </button>
-              <div v-else class="rb-link-formular">
-                <input v-model="linkBezeichnung" type="text" class="rb-eingabe" placeholder="Bezeichnung (z. B. Rechnung 2026-042)">
-                <input v-model="linkUrl" type="url" class="rb-eingabe" placeholder="https://paperless.example.com/documents/...">
-                <div class="rb-link-formular-aktionen">
-                  <button type="button" class="rb-knopf-sekundaer" @click="linkFormularOffen = false">Abbrechen</button>
-                  <button type="button" class="rb-knopf-primaer" :disabled="linkSpeichernLaeuft" @click="linkSpeichern">
-                    {{ linkSpeichernLaeuft ? 'Speichert …' : 'Speichern' }}
-                  </button>
-                </div>
-              </div>
-
-              <button v-if="!notizFormularOffen" type="button" class="rb-hochladen" @click="notizFormularOffen = true">
-                + Telefonat / Notiz
-              </button>
-              <div v-else class="rb-link-formular">
-                <select v-model="notizArt" class="rb-eingabe">
-                  <option value="Telefonat">Telefonat</option>
-                  <option value="Notiz">Notiz</option>
-                </select>
-                <input v-model="notizAnsprechpartner" type="text" class="rb-eingabe" placeholder="Ansprechpartner (optional)">
-                <textarea v-model="notizText" rows="4" class="rb-eingabe" placeholder="Was wurde besprochen?"></textarea>
-                <div class="rb-link-formular-aktionen">
-                  <button type="button" class="rb-knopf-sekundaer" @click="notizFormularOffen = false">Abbrechen</button>
-                  <button type="button" class="rb-knopf-primaer" :disabled="notizSpeichernLaeuft" @click="notizSpeichern">
-                    {{ notizSpeichernLaeuft ? 'Speichert …' : 'Speichern' }}
-                  </button>
-                </div>
-              </div>
-
-              <button v-if="!posteingangOffen" type="button" class="rb-hochladen" @click="posteingangOeffnen">
-                📧 Aus Posteingang zuordnen
-              </button>
-              <div v-else class="rb-link-formular">
-                <div class="rb-postfach-kopf">
-                  <span>Posteingang</span>
-                  <button type="button" class="rb-tag-entfernen" title="Schließen" @click="posteingangOffen = false">×</button>
-                </div>
-                <p v-if="postfachLaeuft" class="rb-gedaempft"><span class="rb-spinner"></span> Lädt …</p>
-                <p v-else-if="postfachFehler" class="rb-meldung rb-meldung-fehler">{{ postfachFehler }}</p>
-                <p v-else-if="!postfachNachrichten.length" class="rb-gedaempft">Keine Nachrichten gefunden.</p>
-                <ul v-else class="rb-postfachliste">
-                  <li v-for="n in postfachNachrichten" :key="n.databaseId" class="rb-postfachzeile">
-                    <div class="rb-postfachzeile-info">
-                      <span class="rb-dateiname">{{ n.subject || '(kein Betreff)' }}</span>
-                      <span class="rb-gedaempft rb-postfach-absender">{{ postfachAbsender(n) }}</span>
-                    </div>
-                    <button
-                      type="button"
-                      class="rb-knopf-sekundaer"
-                      :disabled="zuordnenLaeuftFuer === n.databaseId"
-                      @click="nachrichtZuordnen(n)"
-                    >
-                      {{ zuordnenLaeuftFuer === n.databaseId ? '…' : 'Zuordnen' }}
-                    </button>
-                  </li>
-                </ul>
-              </div>
-            </div>
           </template>
         </aside>
       </div>
