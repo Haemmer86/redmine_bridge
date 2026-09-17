@@ -65,9 +65,14 @@ main {
 /* Falls der Elternbereich mit Flexbox arbeitet, streckt sich ein Kind ohne
    eigene Breitenangabe nicht automatisch mit — das hier zwingt unseren
    eingehängten Bereich, den verfügbaren Platz tatsächlich auszufüllen,
-   statt sich nur an seinem eigenen Inhalt zu orientieren. */
+   statt sich nur an seinem eigenen Inhalt zu orientieren. Ergänzt um
+   align-self: stretch, da der Elternbereich seine Kinder offenbar
+   UNTEREINANDER anordnet (flex-direction: column) — dort steuert
+   flex-grow nur die Höhe, für die Breite braucht es zusätzlich
+   align-self, um die Quer-Achse zu füllen. */
 #redmine-bridge-app {
   width: 100% !important;
   flex: 1 1 auto !important;
+  align-self: stretch !important;
 }
 </style>
