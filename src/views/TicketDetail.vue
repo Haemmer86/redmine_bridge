@@ -803,10 +803,9 @@ async function tagEntfernen(dateiId, tagId) {
 }
 
 .rb-layout {
-  display: grid;
-  grid-template-columns: 1fr 340px;
+  display: flex;
+  flex-direction: column;
   gap: 20px;
-  align-items: start;
 }
 
 .rb-karte {
@@ -1189,11 +1188,6 @@ textarea.rb-eingabe {
 
 /* Unterhalb dieser Breite reicht der Platz nicht mehr für zwei Spalten
    nebeneinander — die Ablage rutscht dann unter das Formular. */
-@media (max-width: 900px) {
-  .rb-layout {
-    grid-template-columns: 1fr;
-  }
-}
 @media (max-width: 640px) {
   .rb-seite {
     padding: 16px;
