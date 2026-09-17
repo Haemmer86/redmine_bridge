@@ -803,9 +803,10 @@ async function tagEntfernen(dateiId, tagId) {
 }
 
 .rb-layout {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 20px;
+  align-items: start;
 }
 
 .rb-karte {
@@ -1197,6 +1198,9 @@ textarea.rb-eingabe {
     border-radius: var(--border-radius, 6px);
   }
   .rb-raster {
+    grid-template-columns: 1fr;
+  }
+  .rb-layout {
     grid-template-columns: 1fr;
   }
 }
