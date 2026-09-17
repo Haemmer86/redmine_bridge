@@ -393,7 +393,10 @@ class ApiController extends Controller {
 	 *
 	 * Nur die tatsächlich mitgesendeten Felder werden verändert — Redmine
 	 * überschreibt bei PUT nur die im Rumpf enthaltenen Eigenschaften,
-	 * alles andere bleibt automatisch unangetastet.
+	 * alles andere bleibt automatisch unangetastet. `notes` ist Redmines
+	 * eigenes Feld für einen neuen Kommentar/Journaleintrag — wird nur
+	 * dieses eine Feld mitgeschickt, ändert sich am Ticket selbst nichts,
+	 * es kommt nur ein neuer Eintrag im Verlauf hinzu.
 	 *
 	 * @param array<string,mixed> $ticket Felder, die geändert werden sollen
 	 */
@@ -404,7 +407,7 @@ class ApiController extends Controller {
 			$erlaubteFelder = [
 				'subject', 'description', 'status_id', 'priority_id', 'tracker_id',
 				'assigned_to_id', 'start_date', 'due_date', 'done_ratio',
-				'estimated_hours', 'custom_fields',
+				'estimated_hours', 'custom_fields', 'notes',
 			];
 			$nutzlast = array_intersect_key($ticket, array_flip($erlaubteFelder));
 

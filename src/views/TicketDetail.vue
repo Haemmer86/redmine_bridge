@@ -103,6 +103,52 @@ async function speichern() {
   }
 }
 
+// ─── Ist-Stunden (Redmines eigene Zeiterfassung, nur lesend) ────────────
+
+const istStundenAnzeige = computed(() => {
+  const wert = ticket.value?.spent_hours
+  return wert != null ? `${wert} h` : '0 h'
+})
+
+// ─── Kommentare (Redmine-Journaleinträge) ───────────────────────────────
+//
+// Redmine liefert bei "include=journals" auch reine Feldänderungen als
+// Journaleinträge mit (z. B. "Status geändert von X zu Y") - die haben
+// aber einen leeren "notes"-Text. Nur Einträge mit tatsächlichem
+// Kommentartext anzeigen, sonst wäre die Liste voller technischer
+// Änderungsprotokolle statt echter Kommentare.
+const kommentare = computed(() =>
+  (ticket.value?.journals || []).filter((j) => j.notes && j.notes.trim() !== ''),
+)
+
+const neuerKommentar = ref('')
+const kommentarSendenLaeuft = ref(false)
+
+function kommentarDatumFormatieren(iso) {
+  if (!iso) return ''
+  const dt = new Date(iso)
+  if (Number.isNaN(dt.getTime())) return iso
+  const zweistellig = (n) => String(n).padStart(2, '0')
+  return `${dt.getFullYear()}-${zweistellig(dt.getMonth() + 1)}-${zweistellig(dt.getDate())} ${zweistellig(dt.getHours())}:${zweistellig(dt.getMinutes())}`
+}
+
+async function kommentarSenden() {
+  if (!neuerKommentar.value.trim()) return
+  kommentarSendenLaeuft.value = true
+  fehler.value = null
+  try {
+    // Nur "notes" mitschicken - Redmine ändert dann ausschließlich den
+    // Kommentarverlauf, alle anderen Ticketfelder bleiben unangetastet.
+    const antwort = await api.ticketAktualisieren(props.id, { notes: neuerKommentar.value })
+    ticket.value = antwort.ticket
+    neuerKommentar.value = ''
+  } catch (e) {
+    fehler.value = 'Kommentar senden fehlgeschlagen: ' + e.message
+  } finally {
+    kommentarSendenLaeuft.value = false
+  }
+}
+
 const dateiInput = ref(null)
 const hochladeLaeuft = ref(false)
 
@@ -528,12 +574,45 @@ async function tagEntfernen(dateiId, tagId) {
               <span class="rb-label">Geschätzte Stunden</span>
               <input v-model.number="formular.estimated_hours" type="number" min="0" step="0.5" class="rb-eingabe">
             </label>
+            <label>
+              <span class="rb-label">Ist-Stunden (aus Redmine)</span>
+              <input :value="istStundenAnzeige" type="text" class="rb-eingabe" readonly>
+            </label>
           </div>
 
           <div class="rb-aktionen">
             <button class="rb-knopf-primaer" :disabled="speichernLaeuft" @click="speichern">
               <span v-if="speichernLaeuft" class="rb-spinner rb-spinner-hell"></span>
               {{ speichernLaeuft ? 'Speichert …' : 'Speichern' }}
+            </button>
+          </div>
+
+          <div class="rb-kommentare">
+            <h3 class="rb-unterueberschrift">Kommentare</h3>
+            <ul v-if="kommentare.length" class="rb-kommentarliste">
+              <li v-for="j in kommentare" :key="j.id" class="rb-kommentar">
+                <div class="rb-kommentar-kopf">
+                  <strong>{{ j.user?.name || 'Unbekannt' }}</strong>
+                  <span class="rb-gedaempft">{{ kommentarDatumFormatieren(j.created_on) }}</span>
+                </div>
+                <p class="rb-kommentar-text">{{ j.notes }}</p>
+              </li>
+            </ul>
+            <p v-else class="rb-gedaempft">Noch keine Kommentare.</p>
+
+            <textarea
+              v-model="neuerKommentar"
+              rows="3"
+              class="rb-eingabe"
+              placeholder="Kommentar hinzufügen — wird direkt an Redmine gesendet …"
+            ></textarea>
+            <button
+              type="button"
+              class="rb-knopf-sekundaer"
+              :disabled="kommentarSendenLaeuft || !neuerKommentar.trim()"
+              @click="kommentarSenden"
+            >
+              {{ kommentarSendenLaeuft ? 'Wird gesendet …' : 'Kommentar senden' }}
             </button>
           </div>
         </section>
@@ -872,6 +951,43 @@ textarea.rb-eingabe {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--color-border, #eee);
+}
+
+.rb-kommentare {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border, #eee);
+}
+.rb-kommentarliste {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.rb-kommentar {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border, #eee);
+}
+.rb-kommentar:last-child {
+  border-bottom: none;
+}
+.rb-kommentar-kopf {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.85em;
+  margin-bottom: 4px;
+}
+.rb-kommentar-text {
+  white-space: pre-wrap;
+  margin: 0;
+  line-height: 1.5;
+}
+.rb-kommentare textarea.rb-eingabe {
+  width: 100%;
+  margin-bottom: 8px;
+  resize: vertical;
 }
 .rb-knopf-primaer {
   display: inline-flex;
