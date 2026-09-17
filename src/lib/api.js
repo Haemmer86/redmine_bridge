@@ -46,6 +46,9 @@ export const api = {
     anfrage('GET', `/api/tickets?status=${encodeURIComponent(status)}&projekt=${encodeURIComponent(projekt)}&seite=${seite}`),
   ticket: (id) => anfrage('GET', `/api/tickets/${id}`),
   ticketAktualisieren: (id, felder) => anfrage('PUT', `/api/tickets/${id}`, { ticket: felder }),
+  zeiterfassungAktivitaeten: () => anfrage('GET', '/api/zeiterfassung-aktivitaeten'),
+  zeiterfassungAnlegen: (id, stunden, aktivitaetId, kommentar, datum) =>
+    anfrage('POST', `/api/tickets/${id}/zeiterfassung`, { stunden, aktivitaetId, kommentar, datum }),
   ticketErstellen: (felder) => anfrage('POST', '/api/tickets', { ticket: felder }),
   projektErstellen: (felder) => anfrage('POST', '/api/projekte', { projekt: felder }),
   mitgliedHinzufuegen: (projektId, userId, rolleIds) =>

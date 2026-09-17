@@ -422,6 +422,67 @@ class ApiController extends Controller {
 	}
 
 	/**
+	 * Liefert Redmines konfigurierte Zeiterfassungs-Aktivitäten (z. B.
+	 * "Entwicklung", "Support") — Redmine verlangt bei den meisten
+	 * Instanzen eine davon beim Anlegen einer Zeiterfassung.
+	 */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/api/zeiterfassung-aktivitaeten')]
+	public function zeiterfassungAktivitaeten(): DataResponse {
+		return $this->geschuetzterAufruf(function () {
+			$antwort = $this->redmine->anfrage('GET', '/enumerations/time_entry_activities.json');
+			$aktivitaeten = [];
+			foreach ($antwort['time_entry_activities'] ?? [] as $a) {
+				$aktivitaeten[] = ['id' => $a['id'], 'name' => $a['name']];
+			}
+
+			return ['aktivitaeten' => $aktivitaeten];
+		});
+	}
+
+	/**
+	 * Legt eine neue Zeiterfassung (Ist-Stunden) für ein Ticket in Redmine
+	 * an. Nach dem Anlegen wird das Ticket neu abgefragt, damit
+	 * `spent_hours` (die von Redmine geführte Summe) sofort aktuell ist.
+	 */
+	#[NoAdminRequired]
+	#[FrontpageRoute(verb: 'POST', url: '/api/tickets/{id}/zeiterfassung')]
+	public function zeiterfassungAnlegen(
+		int $id,
+		float $stunden,
+		int $aktivitaetId = 0,
+		string $kommentar = '',
+		string $datum = '',
+	): DataResponse {
+		if ($stunden <= 0) {
+			return new DataResponse(['fehler' => 'Bitte eine Stundenzahl größer 0 eintragen.'], Http::STATUS_BAD_REQUEST);
+		}
+
+		return $this->geschuetzterAufruf(function () use ($id, $stunden, $aktivitaetId, $kommentar, $datum) {
+			$nutzlast = [
+				'issue_id' => $id,
+				'hours' => $stunden,
+			];
+			if ($aktivitaetId > 0) {
+				$nutzlast['activity_id'] = $aktivitaetId;
+			}
+			if ($kommentar !== '') {
+				$nutzlast['comments'] = $kommentar;
+			}
+			if ($datum !== '') {
+				$nutzlast['spent_on'] = $datum;
+			}
+
+			$this->redmine->anfrage('POST', '/time_entries.json', ['time_entry' => $nutzlast]);
+
+			$frisch = $this->redmine->anfrage('GET', "/issues/{$id}.json", ['include' => 'attachments,journals']);
+
+			return ['ticket' => $frisch['issue'] ?? null] + $this->ablageInfo($frisch['issue'] ?? []);
+		});
+	}
+
+	/**
 	 * Legt ein neues Ticket in Redmine an.
 	 *
 	 * Projekt und Betreff sind bei Redmine selbst Pflichtfelder — wird

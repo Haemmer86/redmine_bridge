@@ -103,12 +103,62 @@ async function speichern() {
   }
 }
 
-// ─── Ist-Stunden (Redmines eigene Zeiterfassung, nur lesend) ────────────
+// ─── Ist-Stunden erfassen (Redmines eigene Zeiterfassung) ───────────────
 
 const istStundenAnzeige = computed(() => {
   const wert = ticket.value?.spent_hours
   return wert != null ? `${wert} h` : '0 h'
 })
+
+const zeiterfassungFormularOffen = ref(false)
+const zeAktivitaeten = ref([])
+const zeStunden = ref(null)
+const zeAktivitaetId = ref(0)
+const zeDatum = ref(new Date().toISOString().slice(0, 10))
+const zeKommentar = ref('')
+const zeSpeichernLaeuft = ref(false)
+const zeFehler = ref(null)
+
+async function zeiterfassungOeffnen() {
+  zeiterfassungFormularOffen.value = true
+  zeFehler.value = null
+  // Aktivitäten nur beim ersten Öffnen laden, nicht bei jedem Klick erneut.
+  if (zeAktivitaeten.value.length) return
+  try {
+    const antwort = await api.zeiterfassungAktivitaeten()
+    zeAktivitaeten.value = antwort.aktivitaeten || []
+  } catch (e) {
+    // Liste bleibt einfach leer - Redmine akzeptiert die Zeiterfassung
+    // notfalls auch ohne mitgeschickte Aktivität, je nach Konfiguration.
+    zeAktivitaeten.value = []
+  }
+}
+
+async function zeitErfassen() {
+  if (!zeStunden.value || zeStunden.value <= 0) {
+    zeFehler.value = 'Bitte eine Stundenzahl größer 0 eintragen.'
+    return
+  }
+  zeSpeichernLaeuft.value = true
+  zeFehler.value = null
+  try {
+    const antwort = await api.zeiterfassungAnlegen(
+      props.id,
+      zeStunden.value,
+      zeAktivitaetId.value,
+      zeKommentar.value,
+      zeDatum.value,
+    )
+    ticket.value = antwort.ticket
+    zeStunden.value = null
+    zeKommentar.value = ''
+    zeiterfassungFormularOffen.value = false
+  } catch (e) {
+    zeFehler.value = e.message
+  } finally {
+    zeSpeichernLaeuft.value = false
+  }
+}
 
 // ─── Kommentare (Redmine-Journaleinträge) ───────────────────────────────
 //
@@ -574,10 +624,33 @@ async function tagEntfernen(dateiId, tagId) {
               <span class="rb-label">Geschätzte Stunden</span>
               <input v-model.number="formular.estimated_hours" type="number" min="0" step="0.5" class="rb-eingabe">
             </label>
-            <label>
-              <span class="rb-label">Ist-Stunden (aus Redmine)</span>
-              <input :value="istStundenAnzeige" type="text" class="rb-eingabe" readonly>
-            </label>
+          </div>
+
+          <div class="rb-zeiterfassung">
+            <div class="rb-zeiterfassung-kopf">
+              <span class="rb-label">Ist-Stunden (Redmine-Zeiterfassung)</span>
+              <strong>{{ istStundenAnzeige }}</strong>
+            </div>
+
+            <button v-if="!zeiterfassungFormularOffen" type="button" class="rb-hochladen" @click="zeiterfassungOeffnen">
+              + Zeit erfassen
+            </button>
+            <div v-else class="rb-link-formular">
+              <input v-model.number="zeStunden" type="number" min="0" step="0.25" class="rb-eingabe" placeholder="Stunden, z. B. 1.5">
+              <select v-model.number="zeAktivitaetId" class="rb-eingabe">
+                <option :value="0">Aktivität wählen …</option>
+                <option v-for="a in zeAktivitaeten" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select>
+              <input v-model="zeDatum" type="date" class="rb-eingabe">
+              <textarea v-model="zeKommentar" rows="2" class="rb-eingabe" placeholder="Kommentar (optional)"></textarea>
+              <p v-if="zeFehler" class="rb-meldung rb-meldung-fehler">{{ zeFehler }}</p>
+              <div class="rb-link-formular-aktionen">
+                <button type="button" class="rb-knopf-sekundaer" @click="zeiterfassungFormularOffen = false">Abbrechen</button>
+                <button type="button" class="rb-knopf-primaer" :disabled="zeSpeichernLaeuft" @click="zeitErfassen">
+                  {{ zeSpeichernLaeuft ? 'Speichert …' : 'Erfassen' }}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="rb-aktionen">
@@ -951,6 +1024,17 @@ textarea.rb-eingabe {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--color-border, #eee);
+}
+
+.rb-zeiterfassung {
+  margin-top: 4px;
+  margin-bottom: 16px;
+}
+.rb-zeiterfassung-kopf {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
 }
 
 .rb-kommentare {
