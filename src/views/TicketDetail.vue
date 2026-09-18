@@ -385,17 +385,40 @@ const postfachFehler = ref(null)
 const postfachNachrichten = ref([])
 const zuordnenLaeuftFuer = ref(null)
 
+const postfachKonten = ref([])
+const ausgewaehltesKontoId = ref(null)
+
 async function posteingangOeffnen() {
   posteingangOffen.value = true
   postfachFehler.value = null
   postfachLaeuft.value = true
   postfachNachrichten.value = []
   try {
-    const konten = await mailApi.konten()
-    const konto = konten[0]
-    if (!konto) throw new Error('Kein Mail-Konto gefunden.')
+    // Konten nur beim ersten Öffnen laden, nicht bei jedem erneuten Klick.
+    if (!postfachKonten.value.length) {
+      postfachKonten.value = await mailApi.konten()
+    }
+    if (!postfachKonten.value.length) throw new Error('Kein Mail-Konto gefunden.')
 
-    const postfaecher = await mailApi.postfaecher(konto.id)
+    if (!ausgewaehltesKontoId.value) {
+      ausgewaehltesKontoId.value = postfachKonten.value[0].id
+    }
+    await postfachNachrichtenLaden()
+  } catch (e) {
+    postfachFehler.value = e.message
+    postfachLaeuft.value = false
+  }
+}
+
+// Lädt die Nachrichten des GERADE ausgewählten Kontos — eigene Funktion,
+// damit ein Kontowechsel (siehe @change im <select>) dieselbe Logik nutzen
+// kann, ohne die Kontoliste jedes Mal neu abzufragen.
+async function postfachNachrichtenLaden() {
+  postfachFehler.value = null
+  postfachLaeuft.value = true
+  postfachNachrichten.value = []
+  try {
+    const postfaecher = await mailApi.postfaecher(ausgewaehltesKontoId.value)
     const posteingang = postfaecher.find((p) => (p.specialUse || []).includes('inbox'))
       || postfaecher.find((p) => /inbox|posteingang/i.test(p.name || p.displayName || ''))
       || postfaecher[0]
@@ -751,6 +774,16 @@ async function tagEntfernen(dateiId, tagId) {
                   <span>Posteingang</span>
                   <button type="button" class="rb-tag-entfernen" title="Schließen" @click="posteingangOffen = false">×</button>
                 </div>
+                <select
+                  v-if="postfachKonten.length > 1"
+                  v-model="ausgewaehltesKontoId"
+                  class="rb-eingabe"
+                  @change="postfachNachrichtenLaden"
+                >
+                  <option v-for="k in postfachKonten" :key="k.id" :value="k.id">
+                    {{ k.name }} ({{ k.emailAddress }})
+                  </option>
+                </select>
                 <p v-if="postfachLaeuft" class="rb-gedaempft"><span class="rb-spinner"></span> Lädt …</p>
                 <p v-else-if="postfachFehler" class="rb-meldung rb-meldung-fehler">{{ postfachFehler }}</p>
                 <p v-else-if="!postfachNachrichten.length" class="rb-gedaempft">Keine Nachrichten gefunden.</p>
