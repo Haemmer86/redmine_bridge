@@ -52,4 +52,18 @@ export const mailApi = {
   // Der rohe MIME-Quelltext der Nachricht — genau das Format, das eine
   // .eml-Datei erwartet.
   nachrichtQuelle: (nachrichtId) => holen(`/apps/mail/api/messages/${nachrichtId}/source`, true),
+
+  // Anhänge kommen bereits mit vollständiger, direkt aufrufbarer Adresse aus
+  // der Nachrichtenliste (Feld "downloadUrl") - hier reicht ein einfacher
+  // fetch() mit demselben Sicherheits-Kopfeintrag wie bei allen anderen
+  // Mail-App-Aufrufen.
+  async nachrichtAnhangHolen(downloadUrl) {
+    const antwort = await fetch(downloadUrl, {
+      headers: { 'OCS-APIRequest': 'true' },
+    })
+    if (!antwort.ok) {
+      throw new Error(`Anhang-Download fehlgeschlagen (${antwort.status})`)
+    }
+    return antwort.blob()
+  },
 }

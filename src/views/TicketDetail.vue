@@ -453,6 +453,30 @@ async function nachrichtZuordnen(nachricht) {
     ordnerPfad.value = antwort.ordnerPfad
     ordnerFehler.value = antwort.ordnerFehler
     dateien.value = antwort.dateien
+
+    // Anhänge der E-Mail zusätzlich in die Ablage legen, einer nach dem
+    // anderen (nicht parallel, damit bei vielen Anhängen nicht alles
+    // gleichzeitig auf den Server drückt). Scheitert einer, soll das nicht
+    // die bereits erfolgreich zugeordnete E-Mail rückgängig machen -
+    // stattdessen einfach mit den übrigen weitermachen und am Ende auf den
+    // gescheiterten hinweisen.
+    const fehlgeschlageneAnhaenge = []
+    for (const anhang of nachricht.attachments || []) {
+      try {
+        const blob = await mailApi.nachrichtAnhangHolen(anhang.downloadUrl)
+        const datei = new File([blob], anhang.fileName || 'Anhang', { type: anhang.mime || blob.type })
+        const anhangAntwort = await api.dateiHochladen(props.id, datei)
+        ordnerPfad.value = anhangAntwort.ordnerPfad
+        ordnerFehler.value = anhangAntwort.ordnerFehler
+        dateien.value = anhangAntwort.dateien
+      } catch (e) {
+        fehlgeschlageneAnhaenge.push(anhang.fileName || 'unbenannt')
+      }
+    }
+    if (fehlgeschlageneAnhaenge.length) {
+      fehler.value = `E-Mail zugeordnet, aber diese Anhänge konnten nicht abgelegt werden: ${fehlgeschlageneAnhaenge.join(', ')}`
+    }
+
     posteingangOffen.value = false
   } catch (e) {
     fehler.value = 'Zuordnung fehlgeschlagen: ' + e.message
@@ -790,7 +814,9 @@ async function tagEntfernen(dateiId, tagId) {
                 <ul v-else class="rb-postfachliste">
                   <li v-for="n in postfachNachrichten" :key="n.databaseId" class="rb-postfachzeile">
                     <div class="rb-postfachzeile-info">
-                      <span class="rb-dateiname">{{ n.subject || '(kein Betreff)' }}</span>
+                      <span class="rb-dateiname">
+                        {{ n.subject || '(kein Betreff)' }}<span v-if="n.hasAttachments" title="Hat Anhänge"> 📎</span>
+                      </span>
                       <span class="rb-gedaempft rb-postfach-absender">{{ postfachAbsender(n) }}</span>
                     </div>
                     <button
