@@ -815,7 +815,7 @@ async function tagEntfernen(dateiId, tagId) {
                   <li v-for="n in postfachNachrichten" :key="n.databaseId" class="rb-postfachzeile">
                     <div class="rb-postfachzeile-info">
                       <span class="rb-dateiname">
-                        {{ n.subject || '(kein Betreff)' }}<span v-if="n.hasAttachments" title="Hat Anhänge"> 📎</span>
+                        {{ n.subject || '(kein Betreff)' }}<span v-if="n.attachments && n.attachments.length" title="Hat Anhänge"> 📎</span>
                       </span>
                       <span class="rb-gedaempft rb-postfach-absender">{{ postfachAbsender(n) }}</span>
                     </div>
