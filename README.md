@@ -61,7 +61,8 @@ npm install
 npm run build
 ```
 
-Das erzeugt `js/redmine_bridge-main.js` und `css/redmine_bridge-main.css`.
+Das erzeugt `js/redmine_bridge-main.js` (das CSS ist automatisch mit
+eingebettet, es gibt keine separate `.css`-Datei — siehe `vite.config.js`).
 
 **Wichtig:** Bei jeder Änderung an JS/CSS die Versionsnummer in
 `appinfo/info.xml` erhöhen — sonst liefern Zwischenspeicher (Browser, CDNs

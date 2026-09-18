@@ -13,6 +13,16 @@ export default defineConfig({
     rollupOptions: {
       input: path.resolve(__dirname, 'src/main.js'),
       output: {
+        // "iife" statt des Standardformats: kapselt unseren gesamten Code
+        // in eine eigene, abgeschlossene Funktion. Ohne das landen unsere
+        // internen Variablennamen im GLOBALEN Bereich der Seite — bindet
+        // Nextcloud mehrere Apps zu einer gemeinsamen Datei zusammen
+        // (eigene Optimierung, außerhalb unserer Kontrolle), kann das zu
+        // Namenskollisionen mit einer völlig anderen App führen (genau
+        // das ist uns mit der Kurzvariable "_" passiert). "iife" macht
+        // das strukturell unmöglich, unabhängig davon, was Nextcloud sonst
+        // noch dazu bündelt.
+        format: 'iife',
         entryFileNames: 'js/redmine_bridge-main.js',
         chunkFileNames: 'js/redmine_bridge-[name].js',
         assetFileNames: (assetInfo) => {

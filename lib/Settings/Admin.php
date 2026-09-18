@@ -31,8 +31,6 @@ class Admin implements ISettings {
 	}
 
 	public function getForm(): TemplateResponse {
-		Util::addStyle(Application::APP_ID, 'settings-admin');
-
 		$basisUrl = $this->config->getAppValue(Application::APP_ID, Application::CONF_BASIS_URL, '');
 		$hatSchluessel = $this->config->getAppValue(Application::APP_ID, Application::CONF_API_SCHLUESSEL, '') !== '';
 		$basisPfad = trim(

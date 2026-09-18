@@ -44,7 +44,11 @@ class PageController extends Controller {
 		}
 
 		Util::addScript(Application::APP_ID, Application::APP_ID . '-main');
-		Util::addStyle(Application::APP_ID, Application::APP_ID . '-main');
+		// Kein Util::addStyle() mehr nötig: Seit der Build auf das "iife"-
+		// Format umgestellt wurde, bettet Vite das CSS direkt ins
+		// JavaScript ein (fügt beim Laden automatisch ein <style>-Element
+		// ein) — es gibt keine separate .css-Datei mehr, die man einbinden
+		// müsste. Siehe vite.config.js für die Begründung.
 
 		return new TemplateResponse(Application::APP_ID, 'app');
 	}
