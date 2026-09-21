@@ -203,17 +203,28 @@ const dateiInput = ref(null)
 const hochladeLaeuft = ref(false)
 
 async function dateiAusgewaehlt(ereignis) {
-  const datei = ereignis.target.files[0]
-  if (!datei) return
+  const ausgewaehlteDateien = Array.from(ereignis.target.files || [])
+  if (!ausgewaehlteDateien.length) return
   hochladeLaeuft.value = true
   fehler.value = null
+  const fehlgeschlagen = []
   try {
-    const antwort = await api.dateiHochladen(props.id, datei)
-    ordnerPfad.value = antwort.ordnerPfad
-    ordnerFehler.value = antwort.ordnerFehler
-    dateien.value = antwort.dateien
-  } catch (e) {
-    fehler.value = e.message
+    // Nacheinander statt parallel — die API nimmt pro Aufruf genau eine
+    // Datei entgegen, und der Ordner-Abgleich auf dem Server verträgt
+    // sich nicht gut mit gleichzeitigen Anfragen für denselben Ordner.
+    for (const datei of ausgewaehlteDateien) {
+      try {
+        const antwort = await api.dateiHochladen(props.id, datei)
+        ordnerPfad.value = antwort.ordnerPfad
+        ordnerFehler.value = antwort.ordnerFehler
+        dateien.value = antwort.dateien
+      } catch (e) {
+        fehlgeschlagen.push(`${datei.name}: ${e.message}`)
+      }
+    }
+    if (fehlgeschlagen.length) {
+      fehler.value = 'Hochladen fehlgeschlagen bei ' + fehlgeschlagen.length + ' Datei(en) — ' + fehlgeschlagen.join('; ')
+    }
   } finally {
     hochladeLaeuft.value = false
     if (dateiInput.value) dateiInput.value.value = ''
@@ -370,9 +381,15 @@ const verlaufEintraege = computed(() =>
       return db.localeCompare(da) // neueste zuerst
     }),
 )
+const urlEintraege = computed(() =>
+  dateien.value
+    .filter((d) => d.url)
+    .slice()
+    .sort((a, b) => (b.geaendert || 0) - (a.geaendert || 0)), // neueste zuerst
+)
 const weitereDateien = computed(() =>
   dateien.value
-    .filter((d) => !d.eml && !d.notiz)
+    .filter((d) => !d.eml && !d.notiz && !d.url)
     .slice()
     .sort((a, b) => (b.geaendert || 0) - (a.geaendert || 0)), // neueste (zuletzt hochgeladen/geändert) zuerst
 )
@@ -755,7 +772,7 @@ async function tagEntfernen(dateiId, tagId) {
               <label class="rb-hochladen" :class="{ 'rb-hochladen-aktiv': hochladeLaeuft }">
                 <span v-if="hochladeLaeuft"><span class="rb-spinner"></span> Wird hochgeladen …</span>
                 <span v-else>+ Datei ablegen</span>
-                <input ref="dateiInput" type="file" :disabled="hochladeLaeuft" class="rb-datei-input" @change="dateiAusgewaehlt">
+                <input ref="dateiInput" type="file" multiple :disabled="hochladeLaeuft" class="rb-datei-input" @change="dateiAusgewaehlt">
               </label>
 
               <button v-if="!linkFormularOffen" type="button" class="rb-hochladen" @click="linkFormularOffen = true">
@@ -832,6 +849,47 @@ async function tagEntfernen(dateiId, tagId) {
               </div>
             </div>
 
+            <template v-if="urlEintraege.length">
+              <h3 class="rb-unterueberschrift">Links</h3>
+              <ul class="rb-dateiliste">
+                <li v-for="d in urlEintraege" :key="d.id" class="rb-dateizeile">
+                  <div class="rb-dateizeile-reihe">
+                    <button
+                      type="button"
+                      class="rb-dateizeile-knopf"
+                      title="Link öffnen"
+                      @click="linkOeffnen(d.url)"
+                    >
+                      <span class="rb-dateisymbol-klein">🔗</span>
+                      <span class="rb-dateiname" :title="d.name">{{ d.name.replace(/\.url$/i, '') }}</span>
+                    </button>
+                    <button type="button" class="rb-datei-loeschen" title="Löschen" @click="dateiLoeschen(d)">🗑</button>
+                  </div>
+
+                  <div class="rb-tag-bereich">
+                    <span v-for="t in d.tags" :key="t.id" class="rb-tag-chip">
+                      {{ t.name }}
+                      <button type="button" class="rb-tag-entfernen" title="Schlagwort entfernen" @click="tagEntfernen(d.id, t.id)">×</button>
+                    </span>
+                    <span v-if="tagEingabeFuer === d.id" class="rb-tag-eingabe-zeile">
+                      <input
+                        v-model="neuerTagName"
+                        list="rb-tag-vorschlaege"
+                        type="text"
+                        class="rb-tag-eingabe"
+                        placeholder="Schlagwort …"
+                        autofocus
+                        @keydown.enter="tagHinzufuegen(d.id)"
+                        @keydown.esc="tagEingabeFuer = null"
+                        @blur="tagHinzufuegen(d.id)"
+                      >
+                    </span>
+                    <button v-else type="button" class="rb-tag-hinzufuegen" @click="tagEingabeOeffnen(d.id)">+ Tag</button>
+                  </div>
+                </li>
+              </ul>
+            </template>
+
             <template v-if="verlaufEintraege.length">
               <h3 class="rb-unterueberschrift">Gesprächsverlauf</h3>
               <ul class="rb-dateiliste">
@@ -878,7 +936,7 @@ async function tagEntfernen(dateiId, tagId) {
               </ul>
             </template>
 
-            <h3 v-if="verlaufEintraege.length" class="rb-unterueberschrift">Weitere Dateien</h3>
+            <h3 v-if="verlaufEintraege.length || urlEintraege.length" class="rb-unterueberschrift">Weitere Dateien</h3>
             <ul v-if="weitereDateien.length" class="rb-dateiliste">
               <li v-for="d in weitereDateien" :key="d.id" class="rb-dateizeile">
                 <div class="rb-dateizeile-reihe">
@@ -919,7 +977,7 @@ async function tagEntfernen(dateiId, tagId) {
                 </div>
               </li>
             </ul>
-            <p v-if="!verlaufEintraege.length && !weitereDateien.length" class="rb-gedaempft rb-keine-dateien">
+            <p v-if="!verlaufEintraege.length && !weitereDateien.length && !urlEintraege.length" class="rb-gedaempft rb-keine-dateien">
               Noch keine Dateien in diesem Ordner.
             </p>
 
