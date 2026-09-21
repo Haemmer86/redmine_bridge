@@ -69,6 +69,7 @@ function prioritaetFarbe(name) {
     <header class="rb-kopf">
       <h1>Tickets</h1>
       <div class="rb-kopf-aktionen">
+        <a href="#/projekte" class="rb-knopf-sekundaer-hell">📊 Zeitplan</a>
         <a href="#/projekte/neu" class="rb-knopf-sekundaer-hell">+ Neues Projekt</a>
         <a href="#/tickets/neu" class="rb-knopf-primaer-hell">+ Neues Ticket</a>
       </div>

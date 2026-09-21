@@ -354,6 +354,95 @@ class ApiController extends Controller {
 	}
 
 	/**
+	 * Zeitspanne je Projekt — Grundlage für die Gantt-Ansicht auf der
+	 * Projekte-Seite.
+	 *
+	 * Redmine kennt kein Start-/Enddatum auf Projektebene, nur je Ticket.
+	 * Die Zeitspanne eines Projekts wird deshalb aus dem frühesten
+	 * Startdatum und dem spätesten Fälligkeitsdatum seiner Tickets
+	 * abgeleitet. Projekte ganz ohne datierte Tickets liefern keinen
+	 * Balken und tauchen in der Ansicht nicht auf.
+	 */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/api/projekte/gantt')]
+	public function projekteGantt(): DataResponse {
+		return $this->geschuetzterAufruf(function () {
+			$projekte = $this->redmine->anfrage('GET', '/projects.json', ['limit' => 100]);
+			$projektNamen = [];
+			foreach ($projekte['projects'] ?? [] as $p) {
+				$projektNamen[$p['id']] = $p['name'];
+			}
+
+			$statusAntwort = $this->redmine->anfrage('GET', '/issue_statuses.json');
+			$geschlosseneStatusIds = [];
+			foreach ($statusAntwort['issue_statuses'] ?? [] as $s) {
+				if ($s['is_closed'] ?? false) {
+					$geschlosseneStatusIds[$s['id']] = true;
+				}
+			}
+
+			// Alle Tickets holen (offen wie erledigt — für den Zeitplan
+			// zählt die geplante Spanne, nicht der aktuelle Status),
+			// seitenweise bis zu einer Obergrenze, die für eine
+			// Handwerks-/KMU-Redmine-Instanz reichlich ist.
+			$tickets = [];
+			$maxSeiten = 5;
+			for ($seite = 0; $seite < $maxSeiten; $seite++) {
+				$antwort = $this->redmine->anfrage('GET', '/issues.json', [
+					'status_id' => '*',
+					'limit' => 100,
+					'offset' => $seite * 100,
+				]);
+				$stapel = $antwort['issues'] ?? [];
+				array_push($tickets, ...$stapel);
+				if (count($stapel) < 100 || count($tickets) >= ($antwort['total_count'] ?? 0)) {
+					break;
+				}
+			}
+
+			$zeitspannen = [];
+			foreach ($tickets as $ticket) {
+				$projektId = $ticket['project']['id'] ?? null;
+				$start = $ticket['start_date'] ?? null;
+				if ($projektId === null || $start === null) {
+					continue;
+				}
+				$ende = $ticket['due_date'] ?? $start;
+				if ($ende < $start) {
+					$ende = $start;
+				}
+
+				if (!isset($zeitspannen[$projektId])) {
+					$zeitspannen[$projektId] = [
+						'projektId' => $projektId,
+						'name' => $projektNamen[$projektId] ?? $ticket['project']['name'] ?? ('#' . $projektId),
+						'start' => $start,
+						'ende' => $ende,
+						'ticketAnzahl' => 0,
+						'erledigtAnzahl' => 0,
+					];
+				}
+				if ($start < $zeitspannen[$projektId]['start']) {
+					$zeitspannen[$projektId]['start'] = $start;
+				}
+				if ($ende > $zeitspannen[$projektId]['ende']) {
+					$zeitspannen[$projektId]['ende'] = $ende;
+				}
+				$zeitspannen[$projektId]['ticketAnzahl']++;
+				if (isset($geschlosseneStatusIds[$ticket['status']['id'] ?? null])) {
+					$zeitspannen[$projektId]['erledigtAnzahl']++;
+				}
+			}
+
+			$ergebnis = array_values($zeitspannen);
+			usort($ergebnis, static fn ($a, $b) => $a['start'] <=> $b['start']);
+
+			return ['projekte' => $ergebnis];
+		});
+	}
+
+	/**
 	 * Mitglieder eines Projekts — die Quelle für die Bearbeiter-Auswahl.
 	 *
 	 * Bewusst je Projekt abgefragt statt eine globale Benutzerliste zu

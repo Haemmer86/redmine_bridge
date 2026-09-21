@@ -55,6 +55,7 @@ export const api = {
     anfrage('POST', `/api/projekte/${projektId}/mitglied-hinzufuegen`, { userId, rolleIds }),
   formulardaten: () => anfrage('GET', '/api/formulardaten'),
   mitglieder: (projektId) => anfrage('GET', `/api/projekte/${projektId}/mitglieder`),
+  projekteGantt: () => anfrage('GET', '/api/projekte/gantt'),
 
   async dateiHochladen(id, datei) {
     const formular = new FormData()

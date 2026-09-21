@@ -4,6 +4,7 @@ import TicketListe from './views/TicketListe.vue'
 import TicketDetail from './views/TicketDetail.vue'
 import TicketNeu from './views/TicketNeu.vue'
 import ProjektNeu from './views/ProjektNeu.vue'
+import ProjekteGantt from './views/ProjekteGantt.vue'
 
 // Bewusst kein vue-router: Vier Ansichten rechtfertigen keine zusätzliche
 // Abhängigkeit. Das Hash (#/tickets/28) reicht für "Adresse kopierbar" und
@@ -20,6 +21,7 @@ onUnmounted(() => window.removeEventListener('hashchange', aktualisieren))
 const route = computed(() => {
   if (hash.value === '#/tickets/neu') return { name: 'ticket-neu' }
   if (hash.value === '#/projekte/neu') return { name: 'projekt-neu' }
+  if (hash.value === '#/projekte') return { name: 'projekte-gantt' }
   const treffer = hash.value.match(/^#\/tickets\/(\d+)/)
   if (treffer) return { name: 'ticket-detail', id: Number(treffer[1]) }
   return { name: 'liste' }
@@ -29,6 +31,7 @@ const route = computed(() => {
 <template>
   <TicketNeu v-if="route.name === 'ticket-neu'" />
   <ProjektNeu v-else-if="route.name === 'projekt-neu'" />
+  <ProjekteGantt v-else-if="route.name === 'projekte-gantt'" />
   <TicketDetail v-else-if="route.name === 'ticket-detail'" :id="route.id" />
   <TicketListe v-else />
 </template>
