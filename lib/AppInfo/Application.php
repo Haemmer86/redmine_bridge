@@ -43,6 +43,11 @@ class Application extends App implements IBootstrap {
 				trim($config->getAppValue(self::APP_ID, self::CONF_BASIS_PFAD, self::STANDARD_BASIS_PFAD), '/'),
 			);
 		});
+
+		// Zeigt offene Tickets im Nextcloud-Dashboard — insbesondere für
+		// die mobilen Apps gedacht, die sonst keinen eigenen
+		// Navigationspunkt für diese App haben (siehe RedmineWidget).
+		$context->registerDashboardWidget(\OCA\RedmineBridge\Dashboard\RedmineWidget::class);
 	}
 
 	public function boot(IBootContext $context): void {
