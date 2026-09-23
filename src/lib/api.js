@@ -72,6 +72,23 @@ export const api = {
     return daten
   },
 
+  async mailAnhangAblegen(id, betreff, datum, datei) {
+    const formular = new FormData()
+    formular.append('betreff', betreff || '')
+    formular.append('datum', datum || '')
+    formular.append('datei', datei)
+    const antwort = await fetch(url(`/api/tickets/${id}/mail-anhang`), {
+      method: 'POST',
+      headers: { requesttoken: requestToken() },
+      body: formular,
+    })
+    const daten = await antwort.json().catch(() => ({}))
+    if (!antwort.ok || daten.fehler) {
+      throw new Error(daten.fehler || `Hochladen fehlgeschlagen (${antwort.status})`)
+    }
+    return daten
+  },
+
   urlAblegen: (id, bezeichnung, url) => anfrage('POST', `/api/tickets/${id}/urls`, { bezeichnung, url }),
   notizAblegen: (id, art, text, ansprechpartner) => anfrage('POST', `/api/tickets/${id}/notizen`, { art, text, ansprechpartner }),
   mailVerlaufAblegen: (id, von, betreff, text, datum, nachrichtKennung) =>

@@ -160,6 +160,52 @@ class AblageService {
 	}
 
 	/**
+	 * Legt einen E-Mail-Anhang im Ticket-Ordner ab, benannt nach demselben
+	 * "E-Mail {Datum} {Betreff}"-Schema wie der zugehörige
+	 * Gesprächsverlauf-Eintrag (siehe {@see mailVerlaufAblegen()}) — Anhang
+	 * und E-Mail-Text bekommen dadurch denselben Anfang, stehen im Ordner
+	 * direkt nebeneinander und sind auf den ersten Blick als zusammengehörig
+	 * erkennbar, statt unter ihrem oft unaussagekräftigen Originalnamen
+	 * (z. B. "Scan0001.pdf") zu verschwinden. Datum wird bewusst identisch
+	 * zu {@see mailVerlaufAblegen()} geparst, damit beide Namen exakt
+	 * übereinstimmen.
+	 *
+	 * @param resource|string $inhalt
+	 */
+	public function mailAnhangAblegen(
+		array $ticket,
+		string $userId,
+		string $betreff,
+		?\DateTimeImmutable $datum,
+		string $dateiname,
+		mixed $inhalt,
+	): File {
+		$ordner = $this->ordnerFuerTicket($ticket, $userId);
+		$zeitpunkt = $datum ?? new \DateTimeImmutable();
+		$endung = pathinfo($dateiname, PATHINFO_EXTENSION);
+		$originalOhneEndung = pathinfo($dateiname, PATHINFO_FILENAME);
+
+		$basis = $this->schema->bereinige(
+			'E-Mail ' . $zeitpunkt->format('Y-m-d H-i') . ' ' . $betreff . ' - ' . $originalOhneEndung
+		);
+		if ($basis === '') {
+			$basis = 'Anhang';
+		}
+
+		$reserviert = $endung !== '' ? strlen($endung) + 1 : 0;
+		$name = $this->schema->kuerze($basis, $reserviert) . ($endung !== '' ? '.' . $endung : '');
+		$i = 2;
+		while ($ordner->nodeExists($name)) {
+			$zusatz = " ({$i})";
+			$reserviert = strlen($zusatz) + ($endung !== '' ? strlen($endung) + 1 : 0);
+			$name = $this->schema->kuerze($basis, $reserviert) . $zusatz . ($endung !== '' ? '.' . $endung : '');
+			$i++;
+		}
+
+		return $ordner->newFile($name, $inhalt);
+	}
+
+	/**
 	 * Legt einen Verweis (z. B. auf ein Paperless-ngx-Dokument) als kleine
 	 * Verknüpfungsdatei im Ticket-Ordner ab.
 	 *

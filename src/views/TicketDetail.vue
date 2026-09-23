@@ -524,7 +524,11 @@ async function nachrichtZuordnen(nachricht) {
       try {
         const blob = await mailApi.nachrichtAnhangHolen(anhang.downloadUrl)
         const datei = new File([blob], anhang.fileName || 'Anhang', { type: anhang.mime || blob.type })
-        const anhangAntwort = await api.dateiHochladen(props.id, datei)
+        // Eigener Endpunkt statt api.dateiHochladen: benennt den Anhang nach
+        // demselben "E-Mail {Datum} {Betreff}"-Schema wie den zugehörigen
+        // Gesprächsverlauf-Eintrag, statt ihn unter seinem oft
+        // unaussagekräftigen Originalnamen abzulegen.
+        const anhangAntwort = await api.mailAnhangAblegen(props.id, nachricht.subject || '(kein Betreff)', datumIso, datei)
         ordnerPfad.value = anhangAntwort.ordnerPfad
         ordnerFehler.value = anhangAntwort.ordnerFehler
         dateien.value = anhangAntwort.dateien

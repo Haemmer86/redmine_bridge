@@ -703,6 +703,52 @@ class ApiController extends Controller {
 	}
 
 	/**
+	 * Legt einen Anhang einer aus dem Posteingang zugeordneten E-Mail ab,
+	 * benannt nach demselben Schema wie der zugehörige
+	 * Gesprächsverlauf-Eintrag, siehe
+	 * {@see AblageService::mailAnhangAblegen()}.
+	 *
+	 * Landet NUR in Nextcloud, wie besprochen — kein Redmine-Anhang.
+	 */
+	#[NoAdminRequired]
+	#[FrontpageRoute(verb: 'POST', url: '/api/tickets/{id}/mail-anhang')]
+	public function mailAnhangAblegen(int $id, string $betreff = '', string $datum = ''): DataResponse {
+		$hochgeladen = $this->request->getUploadedFile('datei');
+		if ($hochgeladen === null || ($hochgeladen['error'] ?? \UPLOAD_ERR_NO_FILE) !== \UPLOAD_ERR_OK) {
+			return new DataResponse(['fehler' => 'Keine Datei erhalten.'], Http::STATUS_BAD_REQUEST);
+		}
+
+		return $this->geschuetzterAufruf(function () use ($id, $betreff, $datum, $hochgeladen) {
+			$antwort = $this->redmine->anfrage('GET', "/issues/{$id}.json");
+			$ticket = $antwort['issue'] ?? null;
+			if ($ticket === null) {
+				throw new \RuntimeException('Ticket nicht gefunden.');
+			}
+
+			$zeitpunkt = null;
+			if ($datum !== '') {
+				try {
+					$zeitpunkt = new \DateTimeImmutable($datum);
+				} catch (\Throwable) {
+					$zeitpunkt = null;
+				}
+			}
+
+			$inhalt = fopen($hochgeladen['tmp_name'], 'rb');
+			$this->ablage->mailAnhangAblegen(
+				$ticket,
+				$this->benutzerId(),
+				$betreff !== '' ? $betreff : '(kein Betreff)',
+				$zeitpunkt,
+				$hochgeladen['name'],
+				$inhalt,
+			);
+
+			return $this->ablageInfo($ticket);
+		});
+	}
+
+	/**
 	 * Legt einen Verweis (z. B. auf ein Paperless-ngx-Dokument) als kleine
 	 * Verknüpfungsdatei im Ticket-Ordner ab — siehe
 	 * {@see AblageService::urlAblegen()} für das Format.
