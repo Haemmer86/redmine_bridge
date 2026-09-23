@@ -8,6 +8,8 @@ const seite = ref(1)
 const status = ref('open')
 const projektFilter = ref('')
 const projekte = ref([])
+const statusListe = ref([])
+const fortschrittLaeuftFuer = ref(null)
 const ladend = ref(true)
 const fehler = ref(null)
 
@@ -30,9 +32,11 @@ onMounted(async () => {
   try {
     const daten = await api.formulardaten()
     projekte.value = daten.projekte
+    statusListe.value = daten.status || []
   } catch {
-    // Projektliste ist nur für den Filter — schlägt sie fehl, bleibt der
-    // Filter eben leer, die Ticketliste selbst funktioniert trotzdem.
+    // Projektliste/Statusliste sind nur für Filter bzw. die
+    // "100 % → erledigt"-Automatik — schlägt das fehl, bleiben sie eben
+    // leer, die Ticketliste selbst funktioniert trotzdem.
   }
 })
 
@@ -88,6 +92,63 @@ const gruppiert = computed(() => {
   }
   return Array.from(gruppen.values())
 })
+
+// Ziel-Status für die "100 % → erledigt"-Automatik: bevorzugt ein Status,
+// der exakt "Erledigt" heißt (das übliche Wort in dieser Redmine-Instanz),
+// sonst ersatzweise der erste als abgeschlossen markierte Status
+// (`is_closed`) — irgendein erledigter Status ist besser als gar keiner.
+const erledigtStatus = computed(() => {
+  const exakt = statusListe.value.find((s) => (s.name || '').trim().toLowerCase() === 'erledigt')
+  if (exakt) return exakt
+  return statusListe.value.find((s) => s.is_closed) || null
+})
+
+function istGeschlossen(statusId) {
+  const eintrag = statusListe.value.find((s) => s.id === statusId)
+  return !!eintrag?.is_closed
+}
+
+// Erfüllung in 10-%-Schritten anpassen (dieselbe Schrittweite wie der
+// Schieberegler in der Ticket-Detailansicht). Erreicht der Wert 100 %,
+// wird zusätzlich der Status automatisch auf "Erledigt" gesetzt — sofern
+// das Ticket nicht ohnehin schon einen abgeschlossenen Status hat. Bei der
+// aktuellen Filteransicht "Offen" verschwindet das Ticket danach aus der
+// Liste, weil es nicht mehr offen ist.
+async function fortschrittAendern(ticket, delta) {
+  const vorherigerWert = ticket.done_ratio ?? 0
+  const neuerWert = Math.min(100, Math.max(0, vorherigerWert + delta))
+  if (neuerWert === vorherigerWert || fortschrittLaeuftFuer.value !== null) return
+
+  fortschrittLaeuftFuer.value = ticket.id
+  const vorherigerStatus = ticket.status
+  ticket.done_ratio = neuerWert // optimistisch, bei Fehler unten zurückgesetzt
+
+  const felder = { done_ratio: neuerWert }
+  if (neuerWert >= 100 && !istGeschlossen(ticket.status?.id) && erledigtStatus.value) {
+    felder.status_id = erledigtStatus.value.id
+    ticket.status = { id: erledigtStatus.value.id, name: erledigtStatus.value.name }
+  }
+
+  try {
+    const antwort = await api.ticketAktualisieren(ticket.id, felder)
+    if (antwort.ticket) {
+      Object.assign(ticket, antwort.ticket)
+    }
+    // In der Ansicht "Offen" gehört ein jetzt geschlossenes Ticket nicht
+    // mehr in die Liste — sonst wirkt es, als hätte die Änderung nicht
+    // gegriffen.
+    if (status.value === 'open' && istGeschlossen(ticket.status?.id)) {
+      tickets.value = tickets.value.filter((t) => t.id !== ticket.id)
+      gesamt.value = Math.max(0, gesamt.value - 1)
+    }
+  } catch (e) {
+    ticket.done_ratio = vorherigerWert
+    ticket.status = vorherigerStatus
+    fehler.value = `Erfüllung konnte nicht geändert werden: ${e.message}`
+  } finally {
+    fortschrittLaeuftFuer.value = null
+  }
+}
 </script>
 
 <template>
@@ -132,11 +193,12 @@ const gruppiert = computed(() => {
             <th class="rb-col-schmal">Status</th>
             <th class="rb-col-schmal">Priorität</th>
             <th>Zugewiesen an</th>
+            <th class="rb-col-erfuellung">Erfüllung</th>
           </tr>
         </thead>
         <tbody v-for="g in gruppiert" :key="g.projekt?.id ?? 'ohne-projekt'">
           <tr class="rb-gruppenkopf">
-            <td colspan="5" :style="{ borderLeftColor: projektFarbe(g.projekt?.id) }">
+            <td colspan="6" :style="{ borderLeftColor: projektFarbe(g.projekt?.id) }">
               <span class="rb-punkt" :style="{ background: projektFarbe(g.projekt?.id) }"></span>
               <strong>{{ g.projekt?.name || 'Ohne Projekt' }}</strong>
               <span class="rb-gedaempft"> · {{ g.tickets.length }} Ticket{{ g.tickets.length === 1 ? '' : 's' }}</span>
@@ -151,6 +213,32 @@ const gruppiert = computed(() => {
               {{ t.priority?.name }}
             </td>
             <td class="rb-gedaempft">{{ t.assigned_to?.name || '—' }}</td>
+            <td class="rb-erfuellung" @click.stop @keydown.enter.stop>
+              <div class="rb-fortschritt-zeile">
+                <button
+                  type="button"
+                  class="rb-fortschritt-knopf"
+                  :disabled="(t.done_ratio ?? 0) <= 0 || fortschrittLaeuftFuer === t.id"
+                  aria-label="Erfüllung um 10 % verringern"
+                  @click="fortschrittAendern(t, -10)"
+                >−</button>
+                <div class="rb-fortschritt-balken" :title="(t.done_ratio ?? 0) + ' % erledigt'">
+                  <div
+                    class="rb-fortschritt-fuellung"
+                    :class="{ 'rb-fortschritt-fertig': (t.done_ratio ?? 0) >= 100 }"
+                    :style="{ width: (t.done_ratio ?? 0) + '%' }"
+                  ></div>
+                </div>
+                <button
+                  type="button"
+                  class="rb-fortschritt-knopf"
+                  :disabled="(t.done_ratio ?? 0) >= 100 || fortschrittLaeuftFuer === t.id"
+                  aria-label="Erfüllung um 10 % erhöhen"
+                  @click="fortschrittAendern(t, 10)"
+                >+</button>
+                <span class="rb-gedaempft rb-fortschritt-prozent">{{ t.done_ratio ?? 0 }} %</span>
+              </div>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -302,6 +390,61 @@ const gruppiert = computed(() => {
 .rb-punkt-gelb { background: #e5a50a; }
 .rb-punkt-rot { background: #c62828; }
 .rb-punkt-grau { background: #9b9b9b; }
+
+.rb-col-erfuellung {
+  width: 1%;
+  white-space: nowrap;
+}
+.rb-fortschritt-zeile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rb-fortschritt-knopf {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  border-radius: 50%;
+  border: 1px solid var(--color-border, #d8d8db);
+  background: var(--color-main-background, #fff);
+  color: var(--color-main-text, #222);
+  cursor: pointer;
+  font-weight: 600;
+}
+.rb-fortschritt-knopf:hover:not(:disabled) {
+  background: var(--color-background-hover, #f5f5f7);
+}
+.rb-fortschritt-knopf:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.rb-fortschritt-balken {
+  flex: none;
+  width: 80px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-background-darker, #ededf0);
+  overflow: hidden;
+}
+.rb-fortschritt-fuellung {
+  height: 100%;
+  border-radius: 4px;
+  /* Blau = noch in Arbeit, damit die Farbe erst beim Erreichen von 100 %
+     auf Grün wechselt — derselbe Bedeutungscode wie bei den Status-Punkten
+     (gruen = erledigt). */
+  background: var(--color-primary-element, #0069c2);
+  transition: width 0.2s ease;
+}
+.rb-fortschritt-fuellung.rb-fortschritt-fertig {
+  background: #2e7d32;
+}
+.rb-fortschritt-prozent {
+  flex: none;
+  width: 38px;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85em;
+}
 
 .rb-zustand {
   padding: 48px 12px;
