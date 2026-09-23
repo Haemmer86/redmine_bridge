@@ -6,6 +6,7 @@ namespace OCA\RedmineBridge\Controller;
 
 use OCA\RedmineBridge\AppInfo\Application;
 use OCA\RedmineBridge\Service\AblageService;
+use OCA\RedmineBridge\Service\ProjektFarbeService;
 use OCA\RedmineBridge\Service\RedmineClient;
 use OCA\RedmineBridge\Service\TagService;
 use OCP\AppFramework\Controller;
@@ -13,6 +14,7 @@ use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\FrontpageRoute;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
+use OCP\AppFramework\Http\DataDisplayResponse;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\Files\File;
 use OCP\IRequest;
@@ -35,6 +37,7 @@ class ApiController extends Controller {
 		private readonly AblageService $ablage,
 		private readonly TagService $tags,
 		private readonly IUserSession $userSession,
+		private readonly ProjektFarbeService $projektFarbe,
 	) {
 		parent::__construct(Application::APP_ID, $request);
 	}
@@ -421,6 +424,7 @@ class ApiController extends Controller {
 						'ende' => $ende,
 						'ticketAnzahl' => 0,
 						'erledigtAnzahl' => 0,
+						'tickets' => [],
 					];
 				}
 				if ($start < $zeitspannen[$projektId]['start']) {
@@ -430,13 +434,26 @@ class ApiController extends Controller {
 					$zeitspannen[$projektId]['ende'] = $ende;
 				}
 				$zeitspannen[$projektId]['ticketAnzahl']++;
-				if (isset($geschlosseneStatusIds[$ticket['status']['id'] ?? null])) {
+				$erledigt = isset($geschlosseneStatusIds[$ticket['status']['id'] ?? null]);
+				if ($erledigt) {
 					$zeitspannen[$projektId]['erledigtAnzahl']++;
 				}
+				$zeitspannen[$projektId]['tickets'][] = [
+					'id' => $ticket['id'] ?? null,
+					'betreff' => $ticket['subject'] ?? '',
+					'start' => $start,
+					'ende' => $ende,
+					'status' => $ticket['status']['name'] ?? '',
+					'erledigt' => $erledigt,
+				];
 			}
 
 			$ergebnis = array_values($zeitspannen);
 			usort($ergebnis, static fn ($a, $b) => $a['start'] <=> $b['start']);
+			foreach ($ergebnis as &$projekt) {
+				usort($projekt['tickets'], static fn ($a, $b) => $a['start'] <=> $b['start']);
+			}
+			unset($projekt);
 
 			return ['projekte' => $ergebnis];
 		});
@@ -829,5 +846,30 @@ class ApiController extends Controller {
 	#[FrontpageRoute(verb: 'DELETE', url: '/api/dateien/{dateiId}/tags/{tagId}')]
 	public function tagEntfernen(int $dateiId, int $tagId): DataResponse {
 		return $this->geschuetzterAufruf(fn () => ['tags' => $this->tags->tagEntfernen($dateiId, $tagId)]);
+	}
+
+	// ─── Projekt-Icons ────────────────────────────────────────────────────
+
+	/**
+	 * Rundes Farb-Icon für ein Projekt (siehe {@see ProjektFarbeService}) —
+	 * wird vom Dashboard-Widget als Ticket-Icon verwendet. Der Projektname
+	 * kommt als Abfrageparameter mit, statt ihn hier erneut aus Redmine zu
+	 * laden — der Aufrufer (z. B. RedmineWidget) hat ihn ohnehin schon zur
+	 * Hand.
+	 */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/api/icon/projekt/{projektId}')]
+	public function projektIcon(int $projektId, string $name = ''): DataDisplayResponse {
+		$antwort = new DataDisplayResponse(
+			$this->projektFarbe->iconSvg($projektId, $name),
+			Http::STATUS_OK,
+			['Content-Type' => 'image/svg+xml'],
+		);
+		// Farbe/Initialen hängen nur an Projekt-ID und -Name, ändern sich
+		// praktisch nie — beliebig lange cachebar.
+		$antwort->cacheFor(60 * 60 * 24 * 30, false, true);
+
+		return $antwort;
 	}
 }

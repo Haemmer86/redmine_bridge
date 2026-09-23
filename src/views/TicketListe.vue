@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { api } from '../lib/api.js'
 
 const tickets = ref([])
@@ -62,6 +62,32 @@ function prioritaetFarbe(name) {
   if (n.includes('niedrig') || n.includes('low')) return 'grau'
   return 'grau'
 }
+
+// Feste Farbe je Projekt, aus der Projekt-ID abgeleitet (nicht zufällig) —
+// derselbe Farbton (goldener Winkel, 137°) wie im Dashboard-Widget-Icon
+// (siehe ProjektFarbeService.php auf dem Server), damit ein Projekt hier
+// wie dort dieselbe Farbe trägt, ohne dafür eine Anfrage zu brauchen.
+function projektFarbe(projektId) {
+  if (!projektId) return 'transparent'
+  const farbton = (Number(projektId) * 137) % 360
+  return `hsl(${farbton}, 55%, 45%)`
+}
+
+// Tickets nach Projekt gruppiert statt als flache Liste — Reihenfolge der
+// Gruppen bleibt dabei die der aktuellen Sortierung (server-seitig nach
+// updated_on:desc), die Gruppe des zuletzt bearbeiteten Tickets steht also
+// oben. Gilt nur je geladener Seite (Paginierung bleibt unverändert).
+const gruppiert = computed(() => {
+  const gruppen = new Map()
+  for (const t of tickets.value) {
+    const id = t.project?.id ?? 0
+    if (!gruppen.has(id)) {
+      gruppen.set(id, { projekt: t.project, tickets: [] })
+    }
+    gruppen.get(id).tickets.push(t)
+  }
+  return Array.from(gruppen.values())
+})
 </script>
 
 <template>
@@ -102,17 +128,22 @@ function prioritaetFarbe(name) {
         <thead>
           <tr>
             <th class="rb-col-schmal">#</th>
-            <th>Projekt</th>
             <th>Betreff</th>
             <th class="rb-col-schmal">Status</th>
             <th class="rb-col-schmal">Priorität</th>
             <th>Zugewiesen an</th>
           </tr>
         </thead>
-        <tbody>
-          <tr v-for="t in tickets" :key="t.id" class="rb-zeile" tabindex="0" @click="offnen(t.id)" @keydown.enter="offnen(t.id)">
+        <tbody v-for="g in gruppiert" :key="g.projekt?.id ?? 'ohne-projekt'">
+          <tr class="rb-gruppenkopf">
+            <td colspan="5" :style="{ borderLeftColor: projektFarbe(g.projekt?.id) }">
+              <span class="rb-punkt" :style="{ background: projektFarbe(g.projekt?.id) }"></span>
+              <strong>{{ g.projekt?.name || 'Ohne Projekt' }}</strong>
+              <span class="rb-gedaempft"> · {{ g.tickets.length }} Ticket{{ g.tickets.length === 1 ? '' : 's' }}</span>
+            </td>
+          </tr>
+          <tr v-for="t in g.tickets" :key="t.id" class="rb-zeile" tabindex="0" @click="offnen(t.id)" @keydown.enter="offnen(t.id)">
             <td class="rb-nummer">#{{ t.id }}</td>
-            <td>{{ t.project?.name }}</td>
             <td class="rb-betreff">{{ t.subject }}</td>
             <td><span class="rb-punkt" :class="'rb-punkt-' + statusFarbe(t.status?.name)"></span>{{ t.status?.name }}</td>
             <td>
@@ -176,7 +207,11 @@ function prioritaetFarbe(name) {
 }
 .rb-knopf-sekundaer-hell {
   background: rgba(255, 255, 255, 0.92);
-  color: var(--color-main-text, #222);
+  /* Bewusst fest statt var(--color-main-text): dieser Knopf sitzt immer auf
+     dem hellen, halbtransparenten Hintergrund direkt über dem Header-Bild —
+     unabhängig vom Hell-/Dunkelmodus. Mit der Text-Variable wurde die
+     Schrift im Dunkelmodus hell auf hellem Grund und damit unlesbar. */
+  color: #222;
 }
 .rb-knopf-sekundaer-hell:hover {
   background: #fff;
@@ -251,6 +286,16 @@ function prioritaetFarbe(name) {
   border-radius: 50%;
   margin-right: 8px;
   vertical-align: middle;
+}
+.rb-gruppenkopf td {
+  padding: 10px 12px 10px 14px;
+  border-bottom: 1px solid var(--color-border, #e0e0e3);
+  border-left: 4px solid transparent;
+  background: var(--color-background-hover, #f5f5f7);
+  font-size: 0.9em;
+}
+.rb-gruppenkopf:first-child td {
+  border-top: none;
 }
 .rb-punkt-gruen { background: #2e7d32; }
 .rb-punkt-blau { background: #0069c2; }
@@ -331,4 +376,3 @@ function prioritaetFarbe(name) {
   }
 }
 </style>
-
