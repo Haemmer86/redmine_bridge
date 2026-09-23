@@ -14,13 +14,14 @@ use OCP\Files\NotPermittedException;
  * genau wie AblageService in IKS Vorgänge, nur ohne eigene Datenbank im
  * Rücken.
  *
- * ⚠️ Wichtiger Unterschied zu IKS Vorgänge: Dort wird der Ordner über eine
- * gespeicherte Datei-ID wiedergefunden (überlebt Umbenennungen). Hier gibt es
- * keine solche Speicherung — der Ordner wird bei JEDEM Aufruf aus Projekt,
- * Jahr, Ticketnummer und Betreff neu berechnet. Ändert sich der Betreff in
- * Redmine, entsteht beim nächsten Aufruf ein NEUER Ordner statt den
- * bestehenden umzubenennen. Bewusste Vereinfachung fürs Erste — bei Bedarf
- * später um eine schlanke Zuordnungstabelle (Ticket-ID → Datei-ID) ergänzbar.
+ * Ordner werden anhand der Ticketnummer wiedergefunden (Präfix "#<Nummer>"
+ * im Ordnernamen, siehe {@see ordnerFuerNummerFinden()}), nicht anhand des
+ * vollständigen Namens — ändert sich der Betreff in Redmine, wird der
+ * bestehende Ordner beim nächsten Aufruf umbenannt statt ein zweiter
+ * angelegt. Wechselt das Ticket dagegen Projekt oder Jahr, liegt der
+ * bisherige Ordner in einem anderen Eltern-Ordner und wird dort nicht
+ * gefunden — dafür bräuchte es eine echte Ticket-ID → Datei-ID-Zuordnung,
+ * die es hier (bewusst, ohne eigene Datenbank) nicht gibt.
  */
 class AblageService {
 
@@ -47,10 +48,59 @@ class AblageService {
 		$nummer = (int)($ticket['id'] ?? 0);
 		$betreff = (string)($ticket['subject'] ?? '');
 
-		$pfad = $this->schema->ordnerPfad($projekt, $jahr, $nummer, $betreff);
-		$wurzel = $this->rootFolder->getUserFolder($userId);
+		$projektName = $this->schema->bereinige($projekt);
+		if ($projektName === '') {
+			$projektName = '_Ohne Projekt';
+		}
+		$elternPfad = $this->schema->basisPfad() . '/' . $projektName . '/' . $jahr;
+		$zielName = $this->schema->ordnerName($nummer, $betreff);
 
-		return $this->ordnerAnlegen($wurzel, $pfad);
+		$wurzel = $this->rootFolder->getUserFolder($userId);
+		$eltern = $this->ordnerAnlegen($wurzel, $elternPfad);
+
+		return $this->ordnerFuerNummerFinden($eltern, $nummer, $zielName);
+	}
+
+	/**
+	 * Sucht im Eltern-Ordner (Projekt/Jahr) nach einem bereits vorhandenen
+	 * Ticket-Ordner anhand der Ticketnummer — am Präfix "#<Nummer>" im
+	 * Ordnernamen erkannt, unabhängig vom aktuell gespeicherten Betreff.
+	 * Weicht der gefundene Name vom gewünschten ab (Betreff wurde in
+	 * Redmine geändert), wird der Ordner umbenannt statt ein zweiter
+	 * angelegt. Existiert noch keiner, wird er neu erstellt.
+	 *
+	 * "#4" darf dabei nicht auf den Ordner von Ticket #41 passen — deshalb
+	 * nur exakte Übereinstimmung oder ein Präfix, dem direkt " - " oder ein
+	 * Leerzeichen folgt, nie ein reines str_starts_with auf die nackte
+	 * Nummer.
+	 */
+	private function ordnerFuerNummerFinden(Folder $eltern, int $nummer, string $zielName): Folder {
+		$praefix = '#' . $nummer;
+		foreach ($eltern->getDirectoryListing() as $knoten) {
+			if (!($knoten instanceof Folder)) {
+				continue;
+			}
+			$name = $knoten->getName();
+			if ($name !== $praefix && !str_starts_with($name, $praefix . ' - ') && !str_starts_with($name, $praefix . ' ')) {
+				continue;
+			}
+
+			if ($name === $zielName) {
+				return $knoten;
+			}
+
+			try {
+				return $knoten->move($eltern->getPath() . '/' . $zielName);
+			} catch (\Throwable) {
+				// Umbenennen fehlgeschlagen (z. B. Namenskollision mit
+				// einem anderen Ordner) — lieber den bestehenden Ordner
+				// unter dem alten Namen weiterverwenden als einen zweiten
+				// für dasselbe Ticket anzulegen.
+				return $knoten;
+			}
+		}
+
+		return $eltern->getOrCreateFolder($zielName);
 	}
 
 	/**
