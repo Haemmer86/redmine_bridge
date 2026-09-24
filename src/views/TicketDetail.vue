@@ -1029,9 +1029,8 @@ async function tagEntfernen(dateiId, tagId) {
                       class="rb-kategorie-chip"
                       :class="'rb-kategorie-' + dateiKategorie(d).toLowerCase()"
                     >{{ dateiKategorie(d) }}</span>
-                    <span v-if="!d.url" class="rb-gedaempft rb-dateigroesse">
-                      {{ groesseFormatieren(d.groesse) }} · {{ hochladeDatumFormatieren(d.geaendert) }}
-                    </span>
+                    <span v-if="!d.url" class="rb-gedaempft rb-dateispalte-groesse">{{ groesseFormatieren(d.groesse) }}</span>
+                    <span v-if="!d.url" class="rb-gedaempft rb-dateispalte-datum">{{ hochladeDatumFormatieren(d.geaendert) }}</span>
                   </button>
                   <button type="button" class="rb-datei-loeschen" title="Löschen" @click="dateiLoeschen(d)">🗑</button>
                 </div>
@@ -1400,15 +1399,35 @@ textarea.rb-eingabe {
   font-size: 0.75em;
   flex-shrink: 0;
 }
+/* Feste Breite statt "so breit wie der Text" — sonst verschiebt sich
+   Größe/Datum je nach Kategoriewort (DOKUMENT ist länger als BILD) und die
+   Zeilen wirken nicht wie Spalten, sondern wie zufällig verrutschter Text.
+   Dieselbe feste-Breite-Logik gilt für die beiden folgenden Spalten. */
 .rb-kategorie-chip {
   flex-shrink: 0;
+  width: 76px;
+  text-align: center;
   font-size: 0.68em;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  padding: 2px 8px;
+  padding: 2px 4px;
   border-radius: 999px;
   white-space: nowrap;
+}
+.rb-dateispalte-groesse {
+  flex-shrink: 0;
+  width: 60px;
+  text-align: right;
+  font-size: 0.75em;
+  font-variant-numeric: tabular-nums;
+}
+.rb-dateispalte-datum {
+  flex-shrink: 0;
+  width: 112px;
+  text-align: right;
+  font-size: 0.75em;
+  font-variant-numeric: tabular-nums;
 }
 .rb-kategorie-dokument {
   background: rgba(0, 105, 194, 0.12);
