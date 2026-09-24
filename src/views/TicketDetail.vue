@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted, onUnmounted, watch, computed } from 'vue'
 import { api } from '../lib/api.js'
 import { mailApi } from '../lib/mailApi.js'
+import { mailTextAusQuelle } from '../lib/mimeParser.js'
 
 const props = defineProps({
   id: { type: Number, required: true },
@@ -530,12 +531,27 @@ async function nachrichtZuordnen(nachricht) {
   zuordnenLaeuftFuer.value = nachricht.databaseId
   fehler.value = null
   try {
+    // "previewText" aus der Nachrichtenliste ist nur ein kurzer, oft
+    // mitten im Wort abgeschnittener Anrisstext (für die Listenansicht
+    // gedacht) — für den Gesprächsverlauf wird stattdessen der volle
+    // Mailtext aus dem rohen Nachrichtenquelltext extrahiert. Schlägt das
+    // fehl (z. B. unerwartetes MIME-Format), bleibt previewText als
+    // Ausweichlösung, damit die Zuordnung trotzdem nicht ganz abbricht.
+    let volltext = nachricht.previewText || ''
+    try {
+      const quelle = await mailApi.nachrichtQuelle(nachricht.databaseId)
+      const geparst = mailTextAusQuelle(quelle)
+      if (geparst) volltext = geparst
+    } catch (e) {
+      // Volltext nicht lesbar — Vorschautext bleibt als Ausweichlösung
+    }
+
     const datumIso = nachricht.dateInt ? new Date(nachricht.dateInt * 1000).toISOString() : ''
     const antwort = await api.mailVerlaufAblegen(
       props.id,
       postfachAbsender(nachricht),
       nachricht.subject || '(kein Betreff)',
-      nachricht.previewText || '',
+      volltext,
       datumIso,
       nachricht.messageId || '',
     )
