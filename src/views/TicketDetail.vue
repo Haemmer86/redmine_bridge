@@ -335,6 +335,27 @@ function dateisymbol(mime) {
   return '📄'
 }
 
+// Grobe Kategorie je Datei — bewusst nur drei Gruppen (nicht nach exakter
+// Endung), damit die Liste übersichtlich bleibt, egal ob ein PDF, ein Word-
+// oder ein Excel-Dokument abgelegt wurde. Reihenfolge (Dokument vor Bild vor
+// Sonstiges) bestimmt zugleich die Sortierung in weitereDateien().
+const KATEGORIE_REIHENFOLGE = { Dokument: 0, Bild: 1, Sonstiges: 2 }
+function dateiKategorie(d) {
+  const mime = d.mime || ''
+  if (mime.startsWith('image/')) return 'Bild'
+  if (
+    mime === 'application/pdf'
+    || mime.startsWith('text/')
+    || mime.includes('word')
+    || mime.includes('sheet')
+    || mime.includes('excel')
+    || mime.includes('presentation')
+    || mime.includes('powerpoint')
+    || mime.includes('opendocument')
+  ) return 'Dokument'
+  return 'Sonstiges'
+}
+
 // Einheitliches Datumsformat für den Gesprächsverlauf — sowohl für unsere
 // eigenen Notizen (schon im Format "YYYY-MM-DD HH:MM") als auch für
 // .eml-Dateien (rohe, unterschiedlich lange E-Mail-Kopfzeile) —, damit
@@ -429,11 +450,20 @@ const urlEintraege = computed(() =>
     .slice()
     .sort((a, b) => (b.geaendert || 0) - (a.geaendert || 0)), // neueste zuerst
 )
+// Erst nach Kategorie gruppiert (Dokument, Bild, Sonstiges), innerhalb
+// einer Kategorie nach Ablagedatum (neueste zuerst) — so stehen z. B. alle
+// Fotos eines Tickets zusammen, statt mit Rechnungen und Verträgen bunt
+// durchmischt in einer einzigen, nur nach Datum sortierten Liste zu stehen.
 const weitereDateien = computed(() =>
   dateien.value
     .filter((d) => !d.eml && !d.notiz && !d.url)
     .slice()
-    .sort((a, b) => (b.geaendert || 0) - (a.geaendert || 0)), // neueste (zuletzt hochgeladen/geändert) zuerst
+    .sort((a, b) => {
+      const ka = KATEGORIE_REIHENFOLGE[dateiKategorie(a)] ?? 9
+      const kb = KATEGORIE_REIHENFOLGE[dateiKategorie(b)] ?? 9
+      if (ka !== kb) return ka - kb
+      return (b.geaendert || 0) - (a.geaendert || 0) // neueste (zuletzt hochgeladen/geändert) zuerst
+    }),
 )
 
 // ─── Aus Posteingang zuordnen (experimentell, siehe mailApi.js) ─────────
@@ -994,6 +1024,11 @@ async function tagEntfernen(dateiId, tagId) {
                   >
                     <span class="rb-dateisymbol-klein">{{ d.url ? '🔗' : dateisymbol(d.mime) }}</span>
                     <span class="rb-dateiname" :title="d.name">{{ d.url ? d.name.replace(/\.url$/i, '') : d.name }}</span>
+                    <span
+                      v-if="!d.url"
+                      class="rb-kategorie-chip"
+                      :class="'rb-kategorie-' + dateiKategorie(d).toLowerCase()"
+                    >{{ dateiKategorie(d) }}</span>
                     <span v-if="!d.url" class="rb-gedaempft rb-dateigroesse">
                       {{ groesseFormatieren(d.groesse) }} · {{ hochladeDatumFormatieren(d.geaendert) }}
                     </span>
@@ -1364,6 +1399,28 @@ textarea.rb-eingabe {
 .rb-dateigroesse {
   font-size: 0.75em;
   flex-shrink: 0;
+}
+.rb-kategorie-chip {
+  flex-shrink: 0;
+  font-size: 0.68em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.rb-kategorie-dokument {
+  background: rgba(0, 105, 194, 0.12);
+  color: #0069c2;
+}
+.rb-kategorie-bild {
+  background: rgba(46, 125, 50, 0.12);
+  color: #2e7d32;
+}
+.rb-kategorie-sonstiges {
+  background: var(--color-background-darker, #ededf0);
+  color: var(--color-text-maxcontrast, #767676);
 }
 .rb-keine-dateien {
   margin: 0 0 16px;
