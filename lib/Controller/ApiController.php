@@ -7,6 +7,7 @@ namespace OCA\RedmineBridge\Controller;
 use OCA\RedmineBridge\AppInfo\Application;
 use OCA\RedmineBridge\Service\AblageService;
 use OCA\RedmineBridge\Service\ProjektFarbeService;
+use OCA\RedmineBridge\Service\OdooClient;
 use OCA\RedmineBridge\Service\RedmineClient;
 use OCA\RedmineBridge\Service\TagService;
 use OCP\AppFramework\Controller;
@@ -38,6 +39,7 @@ class ApiController extends Controller {
 		private readonly TagService $tags,
 		private readonly IUserSession $userSession,
 		private readonly ProjektFarbeService $projektFarbe,
+		private readonly OdooClient $odoo,
 	) {
 		parent::__construct(Application::APP_ID, $request);
 	}
@@ -917,5 +919,44 @@ class ApiController extends Controller {
 		$antwort->cacheFor(60 * 60 * 24 * 30, false, true);
 
 		return $antwort;
+	}
+
+	// ─── Odoo — Sammelrechnungen ────────────────────────────────────────
+
+	/**
+	 * Kundensuche für den Sammelrechnungs-Dialog (res.partner in Odoo).
+	 * Leere Suche liefert die zuletzt geänderten Kontakte, wie Odoos eigene
+	 * Kontaktsuche das auch macht.
+	 */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/api/odoo/kunden')]
+	public function odooKunden(string $suche = ''): DataResponse {
+		if (!$this->odoo->konfiguriert()) {
+			return new DataResponse(['fehler' => 'Odoo ist nicht konfiguriert (siehe Admin-Einstellungen).'], Http::STATUS_BAD_GATEWAY);
+		}
+
+		return $this->geschuetzterAufruf(fn () => ['kunden' => $this->odoo->kunden($suche)]);
+	}
+
+	/**
+	 * Legt aus mehreren ausgewählten Tickets einen Rechnungsentwurf in Odoo
+	 * an (eine Freitext-Position je Ticket, Betrag manuell im Dialog
+	 * eingetragen). Odoo verbucht/versendet dabei nichts automatisch — der
+	 * Entwurf bleibt in Odoo zur Kontrolle, bevor Mathias ihn bestätigt.
+	 *
+	 * @param array<int,array{beschreibung?:string,betrag?:float|string}> $positionen
+	 */
+	#[NoAdminRequired]
+	#[FrontpageRoute(verb: 'POST', url: '/api/odoo/sammelrechnung')]
+	public function odooSammelrechnung(int $partnerId = 0, array $positionen = []): DataResponse {
+		if (!$this->odoo->konfiguriert()) {
+			return new DataResponse(['fehler' => 'Odoo ist nicht konfiguriert (siehe Admin-Einstellungen).'], Http::STATUS_BAD_GATEWAY);
+		}
+		if ($partnerId <= 0 || count($positionen) === 0) {
+			return new DataResponse(['fehler' => 'Kunde und mindestens eine Position werden benötigt.'], Http::STATUS_BAD_REQUEST);
+		}
+
+		return $this->geschuetzterAufruf(fn () => $this->odoo->sammelrechnungErstellen($partnerId, $positionen));
 	}
 }

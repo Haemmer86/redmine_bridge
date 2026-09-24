@@ -37,7 +37,15 @@ class SettingsController extends Controller {
 	 * Adresse direkt aufruft, muss hier separat geprüft werden.
 	 */
 	#[FrontpageRoute(verb: 'POST', url: '/settings/speichern')]
-	public function speichern(string $basisUrl = '', string $apiSchluessel = '', string $basisPfad = ''): RedirectResponse {
+	public function speichern(
+		string $basisUrl = '',
+		string $apiSchluessel = '',
+		string $basisPfad = '',
+		string $odooUrl = '',
+		string $odooDb = '',
+		string $odooBenutzer = '',
+		string $odooApiSchluessel = '',
+	): RedirectResponse {
 		$ziel = $this->request->getHeader('Referer') !== ''
 			? $this->request->getHeader('Referer')
 			: '/';
@@ -69,6 +77,31 @@ class SettingsController extends Controller {
 		$basisPfad = trim($basisPfad, '/');
 		if ($basisPfad !== '') {
 			$this->config->setAppValue(Application::APP_ID, Application::CONF_BASIS_PFAD, $basisPfad);
+		}
+
+		// Odoo-Anbindung (Sammelrechnungen) — dieselbe Logik wie oben bei
+		// Redmine: der API-Schlüssel wird nie im Klartext angezeigt, ein
+		// leeres Feld beim erneuten Speichern löscht ihn deshalb nicht.
+		$odooUrl = rtrim(trim($odooUrl), '/');
+		if ($odooUrl !== '') {
+			if (!preg_match('#^https?://#i', $odooUrl)) {
+				$odooUrl = 'https://' . $odooUrl;
+			}
+			$this->config->setAppValue(Application::APP_ID, Application::CONF_ODOO_URL, $odooUrl);
+		}
+
+		$odooDb = trim($odooDb);
+		if ($odooDb !== '') {
+			$this->config->setAppValue(Application::APP_ID, Application::CONF_ODOO_DB, $odooDb);
+		}
+
+		$odooBenutzer = trim($odooBenutzer);
+		if ($odooBenutzer !== '') {
+			$this->config->setAppValue(Application::APP_ID, Application::CONF_ODOO_BENUTZER, $odooBenutzer);
+		}
+
+		if (trim($odooApiSchluessel) !== '') {
+			$this->config->setAppValue(Application::APP_ID, Application::CONF_ODOO_API_SCHLUESSEL, trim($odooApiSchluessel));
 		}
 
 		return new RedirectResponse($ziel);

@@ -13,9 +13,28 @@ const fortschrittLaeuftFuer = ref(null)
 const ladend = ref(true)
 const fehler = ref(null)
 
+// ─── Mehrfachauswahl + Odoo-Sammelrechnung ─────────────────────────────
+const ausgewaehlt = ref(new Set())
+const sammelrechnungOffen = ref(false)
+const odooKundeSuche = ref('')
+const odooKundenListe = ref([])
+const odooKundeAusgewaehlt = ref(null)
+const kundenSucheLaeuft = ref(false)
+const kundenSucheFehler = ref(null)
+const positionen = ref([])
+const sammelrechnungLaeuft = ref(false)
+const sammelrechnungFehler = ref(null)
+const sammelrechnungErgebnis = ref(null)
+let kundenSucheTimer = null
+
 async function laden() {
   ladend.value = true
   fehler.value = null
+  // Eine Auswahl bezieht sich auf die gerade sichtbaren Zeilen — bei einem
+  // Neuladen (Filterwechsel, Seitenwechsel) ist sie nicht mehr eindeutig
+  // gültig, deshalb hier zurücksetzen statt sie über Seiten hinweg
+  // mitzuschleppen.
+  ausgewaehlt.value.clear()
   try {
     const antwort = await api.tickets(status.value, projektFilter.value, seite.value)
     tickets.value = antwort.tickets
@@ -149,6 +168,113 @@ async function fortschrittAendern(ticket, delta) {
     fortschrittLaeuftFuer.value = null
   }
 }
+
+// ─── Mehrfachauswahl ────────────────────────────────────────────────────
+
+function auswahlUmschalten(id) {
+  if (ausgewaehlt.value.has(id)) {
+    ausgewaehlt.value.delete(id)
+  } else {
+    ausgewaehlt.value.add(id)
+  }
+}
+
+function auswahlAufheben() {
+  ausgewaehlt.value.clear()
+}
+
+const alleAusgewaehlt = computed(
+  () => tickets.value.length > 0 && tickets.value.every((t) => ausgewaehlt.value.has(t.id)),
+)
+
+function alleUmschalten() {
+  if (alleAusgewaehlt.value) {
+    for (const t of tickets.value) ausgewaehlt.value.delete(t.id)
+  } else {
+    for (const t of tickets.value) ausgewaehlt.value.add(t.id)
+  }
+}
+
+const ausgewaehlteTickets = computed(() => tickets.value.filter((t) => ausgewaehlt.value.has(t.id)))
+
+// ─── Odoo-Sammelrechnung ────────────────────────────────────────────────
+//
+// Legt aus mehreren ausgewählten Tickets einen RechnungsENTWURF in Odoo an
+// (eine Freitext-Position je Ticket, Betrag wird hier manuell eingetragen —
+// es gibt keine automatische Ableitung aus einem Stundensatz). Odoo
+// verbucht/versendet dabei nichts von selbst, der Entwurf bleibt zur
+// Kontrolle in Odoo liegen.
+
+function sammelrechnungOeffnen() {
+  if (ausgewaehlteTickets.value.length === 0) return
+  positionen.value = ausgewaehlteTickets.value.map((t) => ({
+    ticketId: t.id,
+    beschreibung: `#${t.id} ${t.subject}`,
+    betrag: null,
+  }))
+  odooKundeSuche.value = ''
+  odooKundenListe.value = []
+  odooKundeAusgewaehlt.value = null
+  kundenSucheFehler.value = null
+  sammelrechnungFehler.value = null
+  sammelrechnungErgebnis.value = null
+  sammelrechnungOffen.value = true
+  odooKundenSuchen()
+}
+
+function sammelrechnungSchliessen() {
+  sammelrechnungOffen.value = false
+}
+
+async function odooKundenSuchen() {
+  kundenSucheLaeuft.value = true
+  kundenSucheFehler.value = null
+  try {
+    const antwort = await api.odooKunden(odooKundeSuche.value)
+    odooKundenListe.value = antwort.kunden || []
+  } catch (e) {
+    kundenSucheFehler.value = e.message
+  } finally {
+    kundenSucheLaeuft.value = false
+  }
+}
+
+// Leicht verzögert (300 ms) statt bei jedem Tastendruck — sonst eine
+// Anfrage pro Buchstabe während des Tippens.
+watch(odooKundeSuche, () => {
+  clearTimeout(kundenSucheTimer)
+  kundenSucheTimer = setTimeout(odooKundenSuchen, 300)
+})
+
+function odooKundeWaehlen(kunde) {
+  odooKundeAusgewaehlt.value = kunde
+}
+
+const summe = computed(() => positionen.value.reduce((s, p) => s + (Number(p.betrag) || 0), 0))
+
+const positionenGueltig = computed(
+  () =>
+    positionen.value.length > 0 &&
+    positionen.value.every((p) => p.beschreibung.trim() !== '' && Number(p.betrag) > 0),
+)
+
+async function sammelrechnungAbsenden() {
+  if (!odooKundeAusgewaehlt.value || !positionenGueltig.value || sammelrechnungLaeuft.value) return
+  sammelrechnungFehler.value = null
+  sammelrechnungLaeuft.value = true
+  try {
+    const antwort = await api.odooSammelrechnung(
+      odooKundeAusgewaehlt.value.id,
+      positionen.value.map((p) => ({ beschreibung: p.beschreibung, betrag: Number(p.betrag) || 0 })),
+    )
+    sammelrechnungErgebnis.value = antwort
+    auswahlAufheben()
+  } catch (e) {
+    sammelrechnungFehler.value = e.message
+  } finally {
+    sammelrechnungLaeuft.value = false
+  }
+}
 </script>
 
 <template>
@@ -175,6 +301,14 @@ async function fortschrittAendern(ticket, delta) {
         </select>
       </div>
 
+      <div v-if="ausgewaehlt.size > 0" class="rb-auswahl-leiste">
+        <span>{{ ausgewaehlt.size }} Ticket{{ ausgewaehlt.size === 1 ? '' : 's' }} ausgewählt</span>
+        <div class="rb-auswahl-aktionen">
+          <button type="button" class="rb-knopf-sekundaer" @click="auswahlAufheben">Auswahl aufheben</button>
+          <button type="button" class="rb-knopf-primaer" @click="sammelrechnungOeffnen">🧾 Sammelrechnung erstellen</button>
+        </div>
+      </div>
+
       <div v-if="ladend" class="rb-zustand">
         <span class="rb-spinner"></span> Tickets werden geladen …
       </div>
@@ -188,6 +322,14 @@ async function fortschrittAendern(ticket, delta) {
       <table v-else class="rb-tabelle">
         <thead>
           <tr>
+            <th class="rb-col-schmal">
+              <input
+                type="checkbox"
+                :checked="alleAusgewaehlt"
+                aria-label="Alle Tickets auf dieser Seite auswählen"
+                @change="alleUmschalten"
+              >
+            </th>
             <th class="rb-col-schmal">#</th>
             <th>Betreff</th>
             <th class="rb-col-schmal">Status</th>
@@ -198,13 +340,21 @@ async function fortschrittAendern(ticket, delta) {
         </thead>
         <tbody v-for="g in gruppiert" :key="g.projekt?.id ?? 'ohne-projekt'">
           <tr class="rb-gruppenkopf">
-            <td colspan="6" :style="{ borderLeftColor: projektFarbe(g.projekt?.id) }">
+            <td colspan="7" :style="{ borderLeftColor: projektFarbe(g.projekt?.id) }">
               <span class="rb-punkt" :style="{ background: projektFarbe(g.projekt?.id) }"></span>
               <strong>{{ g.projekt?.name || 'Ohne Projekt' }}</strong>
               <span class="rb-gedaempft"> · {{ g.tickets.length }} Ticket{{ g.tickets.length === 1 ? '' : 's' }}</span>
             </td>
           </tr>
           <tr v-for="t in g.tickets" :key="t.id" class="rb-zeile" tabindex="0" @click="offnen(t.id)" @keydown.enter="offnen(t.id)">
+            <td class="rb-auswahl-zelle" @click.stop @keydown.enter.stop>
+              <input
+                type="checkbox"
+                :checked="ausgewaehlt.has(t.id)"
+                aria-label="Ticket auswählen"
+                @change="auswahlUmschalten(t.id)"
+              >
+            </td>
             <td class="rb-nummer">#{{ t.id }}</td>
             <td class="rb-betreff">{{ t.subject }}</td>
             <td><span class="rb-punkt" :class="'rb-punkt-' + statusFarbe(t.status?.name)"></span>{{ t.status?.name }}</td>
@@ -249,6 +399,103 @@ async function fortschrittAendern(ticket, delta) {
         <button class="rb-knopf-sekundaer" :disabled="seite >= Math.ceil(gesamt / 50)" @click="seite++">Weiter →</button>
       </div>
     </section>
+
+    <div
+      v-if="sammelrechnungOffen"
+      class="rb-modal-overlay"
+      @click.self="sammelrechnungSchliessen"
+      @keydown.esc="sammelrechnungSchliessen"
+    >
+      <div class="rb-modal-fenster">
+        <header class="rb-modal-kopf">
+          <span class="rb-modal-titel">Sammelrechnung erstellen</span>
+          <button type="button" class="rb-modal-schliessen" title="Schließen" @click="sammelrechnungSchliessen">×</button>
+        </header>
+
+        <div class="rb-modal-inhalt">
+          <template v-if="sammelrechnungErgebnis">
+            <p><strong style="color: #2e7d32;">✔ Rechnungsentwurf angelegt</strong></p>
+            <p class="rb-gedaempft">
+              Der Entwurf liegt in Odoo bereit — er wurde weder verbucht noch versendet, das bleibt ein
+              bewusster nächster Schritt dort.
+            </p>
+            <p>
+              <a :href="sammelrechnungErgebnis.url" target="_blank" rel="noopener" class="rb-knopf-primaer">
+                Rechnung in Odoo öffnen ↗
+              </a>
+            </p>
+            <div class="rb-modal-aktionen">
+              <button type="button" class="rb-knopf-sekundaer" @click="sammelrechnungSchliessen">Fertig</button>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="rb-feld">
+              <label for="odoo-kunde-suche">Odoo-Kunde</label>
+              <input
+                id="odoo-kunde-suche"
+                v-model="odooKundeSuche"
+                type="text"
+                placeholder="Kunde suchen …"
+                autocomplete="off"
+              >
+              <p v-if="odooKundeAusgewaehlt" class="rb-gedaempft">
+                Ausgewählt: <strong>{{ odooKundeAusgewaehlt.name }}</strong>
+                <button type="button" class="rb-link-knopf" @click="odooKundeAusgewaehlt = null">ändern</button>
+              </p>
+              <ul v-else class="rb-kundenliste">
+                <li v-if="kundenSucheLaeuft" class="rb-gedaempft">Wird gesucht …</li>
+                <li v-else-if="kundenSucheFehler" class="rb-zustand-fehler">{{ kundenSucheFehler }}</li>
+                <li v-else-if="odooKundenListe.length === 0" class="rb-gedaempft">Keine Treffer.</li>
+                <li
+                  v-for="k in odooKundenListe"
+                  :key="k.id"
+                  class="rb-kunden-eintrag"
+                  @click="odooKundeWaehlen(k)"
+                >
+                  {{ k.name }} <span v-if="k.email" class="rb-gedaempft">— {{ k.email }}</span>
+                </li>
+              </ul>
+            </div>
+
+            <table class="rb-positionen">
+              <thead>
+                <tr>
+                  <th>Position</th>
+                  <th class="rb-col-schmal">Betrag (€)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="p in positionen" :key="p.ticketId">
+                  <td><input v-model="p.beschreibung" type="text"></td>
+                  <td><input v-model.number="p.betrag" type="number" min="0" step="0.01" class="rb-betrag-feld"></td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td class="rb-gedaempft">Summe</td>
+                  <td>{{ summe.toFixed(2) }} €</td>
+                </tr>
+              </tfoot>
+            </table>
+
+            <p v-if="sammelrechnungFehler" class="rb-zustand-fehler">{{ sammelrechnungFehler }}</p>
+
+            <div class="rb-modal-aktionen">
+              <button type="button" class="rb-knopf-sekundaer" @click="sammelrechnungSchliessen">Abbrechen</button>
+              <button
+                type="button"
+                class="rb-knopf-primaer"
+                :disabled="!odooKundeAusgewaehlt || !positionenGueltig || sammelrechnungLaeuft"
+                @click="sammelrechnungAbsenden"
+              >
+                {{ sammelrechnungLaeuft ? 'Wird angelegt …' : 'Rechnungsentwurf anlegen' }}
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -517,5 +764,190 @@ async function fortschrittAendern(ticket, delta) {
     white-space: normal;
     min-width: 140px;
   }
+}
+
+/* ─── Mehrfachauswahl ──────────────────────────────────────────────────── */
+.rb-auswahl-zelle {
+  width: 1%;
+  white-space: nowrap;
+}
+.rb-auswahl-leiste {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--border-radius, 6px);
+  background: var(--color-primary-element-light, #e8f1fb);
+  color: var(--color-main-text, #222);
+}
+.rb-auswahl-aktionen {
+  display: flex;
+  gap: 10px;
+}
+.rb-knopf-primaer {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: var(--border-radius, 6px);
+  border: none;
+  background: var(--color-primary-element, #0069c2);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9em;
+  text-decoration: none;
+  cursor: pointer;
+}
+.rb-knopf-primaer:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.rb-knopf-primaer:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ─── Sammelrechnung-Dialog, dasselbe Overlay-Muster wie die
+   Datei-Großvorschau in TicketDetail.vue ─────────────────────────────── */
+.rb-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 24px;
+}
+.rb-modal-fenster {
+  background: var(--color-main-background, #fff);
+  border-radius: var(--border-radius-large, 10px);
+  width: 560px;
+  max-width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.rb-modal-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border, #e0e0e3);
+}
+.rb-modal-titel {
+  font-weight: 600;
+}
+.rb-modal-schliessen {
+  background: none;
+  border: none;
+  font-size: 1.6em;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text-maxcontrast, #767676);
+  padding: 0 4px;
+}
+.rb-modal-schliessen:hover {
+  color: var(--color-main-text, #222);
+}
+.rb-modal-inhalt {
+  padding: 16px;
+  overflow-y: auto;
+}
+.rb-feld {
+  margin-bottom: 16px;
+}
+.rb-feld label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+  font-size: 0.9em;
+}
+.rb-feld input[type='text'] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: var(--border-radius, 6px);
+  border: 1px solid var(--color-border, #d8d8db);
+  background: var(--color-main-background, #fff);
+  color: var(--color-main-text, #222);
+}
+.rb-link-knopf {
+  background: none;
+  border: none;
+  color: var(--color-primary-element, #0069c2);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.9em;
+  text-decoration: underline;
+  margin-left: 6px;
+}
+.rb-kundenliste {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border, #e0e0e3);
+  border-radius: var(--border-radius, 6px);
+}
+.rb-kunden-eintrag {
+  padding: 8px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--color-border, #eee);
+}
+.rb-kunden-eintrag:last-child {
+  border-bottom: none;
+}
+.rb-kunden-eintrag:hover {
+  background: var(--color-background-hover, #f5f5f7);
+}
+.rb-positionen {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+}
+.rb-positionen th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 0.8em;
+  color: var(--color-text-maxcontrast, #767676);
+  border-bottom: 1px solid var(--color-border, #e0e0e3);
+}
+.rb-positionen td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border, #eee);
+}
+.rb-positionen input[type='text'] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: var(--border-radius, 6px);
+  border: 1px solid var(--color-border, #d8d8db);
+  background: var(--color-main-background, #fff);
+  color: var(--color-main-text, #222);
+}
+.rb-betrag-feld {
+  width: 90px;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: var(--border-radius, 6px);
+  border: 1px solid var(--color-border, #d8d8db);
+  background: var(--color-main-background, #fff);
+  color: var(--color-main-text, #222);
+  text-align: right;
+}
+.rb-positionen tfoot td {
+  border-bottom: none;
+  border-top: 2px solid var(--color-border, #e0e0e3);
+  font-weight: 600;
+}
+.rb-modal-aktionen {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
 }
 </style>

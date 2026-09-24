@@ -95,6 +95,9 @@ export const api = {
     anfrage('POST', `/api/tickets/${id}/mail-verlauf`, { von, betreff, text, datum, nachrichtKennung }),
   dateiLoeschen: (id, dateiId) => anfrage('DELETE', `/api/tickets/${id}/dateien/${dateiId}`),
   alleTags: () => anfrage('GET', '/api/tags'),
+  odooKunden: (suche = '') => anfrage('GET', `/api/odoo/kunden?suche=${encodeURIComponent(suche)}`),
+  odooSammelrechnung: (partnerId, positionen) =>
+    anfrage('POST', '/api/odoo/sammelrechnung', { partnerId, positionen }),
   tagSetzen: (dateiId, name) => anfrage('POST', `/api/dateien/${dateiId}/tags`, { name }),
   tagEntfernen: (dateiId, tagId) => anfrage('DELETE', `/api/dateien/${dateiId}/tags/${tagId}`),
 }

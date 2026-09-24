@@ -65,3 +65,75 @@
 		<input type="submit" class="primary" value="<?php p($l->t('Speichern')); ?>">
 	</form>
 </div>
+
+<div id="redmine-bridge-odoo-settings" class="section">
+	<h2><?php p($l->t('Odoo — Sammelrechnungen')); ?></h2>
+	<p class="settings-hint">
+		<?php p($l->t('Zugangsdaten deiner Odoo-Instanz, um aus mehreren ausgewählten Tickets einen Rechnungsentwurf anzulegen. In Odoo unter Einstellungen → Benutzer einen eigenen API-Benutzer/-Schlüssel anlegen, statt das persönliche Odoo-Passwort hier einzutragen.')); ?>
+	</p>
+
+	<?php if ($_['odooVerbindung'] !== null): ?>
+		<?php if ($_['odooVerbindung']['ok']): ?>
+			<p><strong style="color: #2e7d32;">✔ <?php p($l->t('Verbindung erfolgreich')); ?></strong>
+				— <?php p($l->t('angemeldet als')); ?> <?php p($_['odooVerbindung']['benutzer']); ?></p>
+		<?php else: ?>
+			<p><strong style="color: #c62828;">✗ <?php p($l->t('Verbindung fehlgeschlagen')); ?></strong>
+				— <?php p($_['odooVerbindung']['fehler']); ?></p>
+		<?php endif; ?>
+	<?php endif; ?>
+
+	<form method="post" action="<?php print_unescaped($_['actionUrl']); ?>">
+		<input type="hidden" name="requesttoken" value="<?php p($_['requesttoken']); ?>">
+
+		<label for="odoo-url"><?php p($l->t('Odoo-Adresse')); ?></label>
+		<br>
+		<input
+			type="text"
+			id="odoo-url"
+			name="odooUrl"
+			value="<?php p($_['odooUrl']); ?>"
+			style="width: 400px; max-width: 100%;"
+			placeholder="https://meine-firma.odoo.com"
+		>
+		<br><br>
+
+		<label for="odoo-db"><?php p($l->t('Datenbank')); ?></label>
+		<br>
+		<input
+			type="text"
+			id="odoo-db"
+			name="odooDb"
+			value="<?php p($_['odooDb']); ?>"
+			style="width: 400px; max-width: 100%;"
+			placeholder="meine-firma"
+		>
+		<br><br>
+
+		<label for="odoo-benutzer"><?php p($l->t('Benutzer (Login/E-Mail)')); ?></label>
+		<br>
+		<input
+			type="text"
+			id="odoo-benutzer"
+			name="odooBenutzer"
+			value="<?php p($_['odooBenutzer']); ?>"
+			style="width: 400px; max-width: 100%;"
+			placeholder="rechnung@hammerits.de"
+			autocomplete="off"
+		>
+		<br><br>
+
+		<label for="odoo-api-schluessel"><?php p($l->t('API-Schlüssel')); ?></label>
+		<br>
+		<input
+			type="password"
+			id="odoo-api-schluessel"
+			name="odooApiSchluessel"
+			style="width: 400px; max-width: 100%;"
+			placeholder="<?php p($_['odooHatSchluessel'] ? $l->t('••••••••  (bereits hinterlegt — nur bei Änderung ausfüllen)') : $l->t('API-Schlüssel eintragen')); ?>"
+			autocomplete="off"
+		>
+		<br><br>
+
+		<input type="submit" class="primary" value="<?php p($l->t('Speichern')); ?>">
+	</form>
+</div>

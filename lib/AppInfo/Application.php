@@ -28,6 +28,13 @@ class Application extends App implements IBootstrap {
 	public const CONF_BASIS_PFAD = 'basis_pfad';
 	public const STANDARD_BASIS_PFAD = 'Redmine';
 
+	// Konfigurationsschlüssel für die Odoo-Anbindung (Sammelrechnungen aus
+	// mehreren Tickets) — eigener Block, unabhängig von der Redmine-Anbindung.
+	public const CONF_ODOO_URL = 'odoo_url';
+	public const CONF_ODOO_DB = 'odoo_db';
+	public const CONF_ODOO_BENUTZER = 'odoo_benutzer';
+	public const CONF_ODOO_API_SCHLUESSEL = 'odoo_api_schluessel';
+
 	public function __construct() {
 		parent::__construct(self::APP_ID);
 	}
