@@ -1173,6 +1173,16 @@ async function tagEntfernen(dateiId, tagId) {
   gap: 20px;
   align-items: start;
 }
+.rb-layout > .rb-karte {
+  /* Ohne das hier: eine einzelne lange, leerzeichenlose Zeichenkette
+     (z. B. ein langer Dateiname) zwingt diese Spalte auf ihre
+     Inhalts-Mindestbreite, egal was "1fr 1fr" eigentlich vorgibt — die
+     rechte Spalte wird dann breiter als die Hälfte, das Layout läuft aus
+     dem Bildschirm. min-width: 0 erlaubt dem Grid-Item, unter seine
+     Inhalts-Mindestbreite zu schrumpfen, sodass stattdessen der Inhalt
+     selbst umbricht/abgeschnitten wird (siehe .rb-dateiname). */
+  min-width: 0;
+}
 
 .rb-karte {
   background: var(--color-main-background, #fff);
@@ -1370,7 +1380,11 @@ textarea.rb-eingabe {
 }
 .rb-dateizeile-knopf {
   display: flex;
-  align-items: center;
+  /* flex-start statt center: bei einem auf zwei Zeilen umgebrochenen
+     Dateinamen (siehe .rb-dateiname) sollen Symbol/Kategorie/Größe/Datum
+     oben an der ersten Zeile ausgerichtet sein, nicht mittig über die
+     ganze, jetzt höhere Zeile hinweg. */
+  align-items: flex-start;
   gap: 8px;
   flex: 1;
   min-width: 0;
@@ -1405,11 +1419,27 @@ textarea.rb-eingabe {
 
 .rb-dateiname {
   font-size: 0.85em;
+  color: var(--color-main-text, #222);
+  flex: 1;
+  /* min-width: 0 ist hier der eigentliche Kern des Fixes: ein Flex-Item
+     ist standardmäßig mindestens so breit wie sein ungebrochener Inhalt
+     (min-width: auto) — ohne das hier ignoriert der lange Dateiname jeden
+     Umbruch/jede Ellipse und zieht die ganze Zeile (und damit die
+     Ablage-Spalte, siehe .rb-layout > .rb-karte) in die Breite. */
+  min-width: 0;
+  /* Ab einer bestimmten Länge zwei Zeilen statt einer einzigen, beliebig
+     breiten Zeile — bei noch längeren Namen sorgt line-clamp danach für
+     eine Ellipse statt einer dritten Zeile. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  color: var(--color-main-text, #222);
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.3;
 }
 .rb-dateigroesse {
   font-size: 0.75em;
