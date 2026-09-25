@@ -940,6 +940,21 @@ class ApiController extends Controller {
 	}
 
 	/**
+	 * Artikelsuche für den Sammelrechnungs-Dialog (product.product in
+	 * Odoo) — jede Position braucht dort zwingend einen Artikel.
+	 */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
+	#[FrontpageRoute(verb: 'GET', url: '/api/odoo/artikel')]
+	public function odooArtikel(string $suche = ''): DataResponse {
+		if (!$this->odoo->konfiguriert()) {
+			return new DataResponse(['fehler' => 'Odoo ist nicht konfiguriert (siehe Admin-Einstellungen).'], Http::STATUS_BAD_GATEWAY);
+		}
+
+		return $this->geschuetzterAufruf(fn () => ['artikel' => $this->odoo->artikel($suche)]);
+	}
+
+	/**
 	 * Legt aus mehreren ausgewählten Tickets einen Rechnungsentwurf in Odoo
 	 * an (eine Freitext-Position je Ticket, Betrag manuell im Dialog
 	 * eingetragen). Odoo verbucht/versendet dabei nichts automatisch — der

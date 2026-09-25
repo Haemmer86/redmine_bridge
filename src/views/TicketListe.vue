@@ -210,7 +210,19 @@ function sammelrechnungOeffnen() {
   positionen.value = ausgewaehlteTickets.value.map((t) => ({
     ticketId: t.id,
     beschreibung: `#${t.id} ${t.subject}`,
+    // "pauschale" = fester Gesamtbetrag der Position, "stunden" = Menge ×
+    // Stundensatz, mit Redmines bisher erfasster Zeit als Vorschlag.
+    modus: 'pauschale',
+    produkt: null,
     betrag: null,
+    stunden: t.spent_hours ?? 0,
+    stundensatz: null,
+    // Eigener Artikel-Suchzustand je Position, nicht global — in einer
+    // Sammelrechnung braucht jedes Ticket einen eigenen Artikel.
+    artikelSuche: '',
+    artikelListe: [],
+    artikelSucheLaeuft: false,
+    artikelFehler: null,
   }))
   odooKundeSuche.value = ''
   odooKundenListe.value = []
@@ -220,6 +232,10 @@ function sammelrechnungOeffnen() {
   sammelrechnungErgebnis.value = null
   sammelrechnungOffen.value = true
   odooKundenSuchen()
+  // Direkt beim Öffnen schon eine Artikel-Vorschlagsliste je Position
+  // laden (zuletzt geänderte Artikel) — Mathias muss nicht erst tippen,
+  // um zu sehen, was zur Auswahl steht.
+  for (const p of positionen.value) artikelSuchen(p)
 }
 
 function sammelrechnungSchliessen() {
@@ -250,12 +266,61 @@ function odooKundeWaehlen(kunde) {
   odooKundeAusgewaehlt.value = kunde
 }
 
-const summe = computed(() => positionen.value.reduce((s, p) => s + (Number(p.betrag) || 0), 0))
+// ─── Odoo-Artikel je Position ───────────────────────────────────────────
+//
+// Jede Position braucht zwingend einen Artikel (bestimmt Steuer/Erlöskonto
+// in Odoo) — eigener Such-Zustand pro Position statt eines globalen, da
+// mehrere Positionen gleichzeitig im Dialog stehen. Ein Timer je Ticket-ID
+// verhindert eine Anfrage pro Tastendruck.
+const artikelSucheTimer = {}
+
+function artikelSucheAendern(position) {
+  clearTimeout(artikelSucheTimer[position.ticketId])
+  artikelSucheTimer[position.ticketId] = setTimeout(() => artikelSuchen(position), 300)
+}
+
+async function artikelSuchen(position) {
+  position.artikelSucheLaeuft = true
+  position.artikelFehler = null
+  try {
+    const antwort = await api.odooArtikel(position.artikelSuche || '')
+    position.artikelListe = antwort.artikel || []
+  } catch (e) {
+    position.artikelFehler = e.message
+  } finally {
+    position.artikelSucheLaeuft = false
+  }
+}
+
+function artikelWaehlen(position, artikel) {
+  position.produkt = artikel
+  position.artikelSuche = ''
+  position.artikelListe = []
+  // Verkaufspreis des Artikels nur im Stunden-Modus als Stundensatz-
+  // Vorschlag übernehmen — bei einer Pauschale hat der Artikelpreis keine
+  // feste Beziehung zum ausgehandelten Gesamtbetrag.
+  if (position.modus === 'stunden') {
+    position.stundensatz = artikel.list_price
+  }
+}
+
+const summe = computed(() =>
+  positionen.value.reduce((s, p) => {
+    if (p.modus === 'stunden') {
+      return s + (Number(p.stunden) || 0) * (Number(p.stundensatz) || 0)
+    }
+    return s + (Number(p.betrag) || 0)
+  }, 0),
+)
 
 const positionenGueltig = computed(
   () =>
     positionen.value.length > 0 &&
-    positionen.value.every((p) => p.beschreibung.trim() !== '' && Number(p.betrag) > 0),
+    positionen.value.every((p) => {
+      if (!p.produkt || p.beschreibung.trim() === '') return false
+      if (p.modus === 'stunden') return Number(p.stunden) > 0 && Number(p.stundensatz) > 0
+      return Number(p.betrag) > 0
+    }),
 )
 
 async function sammelrechnungAbsenden() {
@@ -265,7 +330,14 @@ async function sammelrechnungAbsenden() {
   try {
     const antwort = await api.odooSammelrechnung(
       odooKundeAusgewaehlt.value.id,
-      positionen.value.map((p) => ({ beschreibung: p.beschreibung, betrag: Number(p.betrag) || 0 })),
+      positionen.value.map((p) => ({
+        beschreibung: p.beschreibung,
+        produktId: p.produkt?.id,
+        modus: p.modus,
+        betrag: p.modus === 'pauschale' ? Number(p.betrag) || 0 : null,
+        stunden: p.modus === 'stunden' ? Number(p.stunden) || 0 : null,
+        stundensatz: p.modus === 'stunden' ? Number(p.stundensatz) || 0 : null,
+      })),
     )
     sammelrechnungErgebnis.value = antwort
     auswahlAufheben()
@@ -458,26 +530,75 @@ async function sammelrechnungAbsenden() {
               </ul>
             </div>
 
-            <table class="rb-positionen">
-              <thead>
-                <tr>
-                  <th>Position</th>
-                  <th class="rb-col-schmal">Betrag (€)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="p in positionen" :key="p.ticketId">
-                  <td><input v-model="p.beschreibung" type="text"></td>
-                  <td><input v-model.number="p.betrag" type="number" min="0" step="0.01" class="rb-betrag-feld"></td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td class="rb-gedaempft">Summe</td>
-                  <td>{{ summe.toFixed(2) }} €</td>
-                </tr>
-              </tfoot>
-            </table>
+            <div class="rb-positionsliste">
+              <div v-for="p in positionen" :key="p.ticketId" class="rb-position">
+                <div class="rb-position-kopf">
+                  <input v-model="p.beschreibung" type="text" class="rb-position-beschreibung">
+                  <div class="rb-modus-umschalter">
+                    <button
+                      type="button"
+                      :class="{ 'rb-modus-aktiv': p.modus === 'pauschale' }"
+                      @click="p.modus = 'pauschale'"
+                    >Pauschale</button>
+                    <button
+                      type="button"
+                      :class="{ 'rb-modus-aktiv': p.modus === 'stunden' }"
+                      @click="p.modus = 'stunden'"
+                    >Stunden</button>
+                  </div>
+                </div>
+
+                <div class="rb-position-artikel">
+                  <template v-if="p.produkt">
+                    <span class="rb-gedaempft">Artikel: <strong>{{ p.produkt.name }}</strong></span>
+                    <button type="button" class="rb-link-knopf" @click="p.produkt = null">ändern</button>
+                  </template>
+                  <template v-else>
+                    <input
+                      v-model="p.artikelSuche"
+                      type="text"
+                      placeholder="Odoo-Artikel suchen … (Pflicht)"
+                      autocomplete="off"
+                      @input="artikelSucheAendern(p)"
+                    >
+                    <ul class="rb-kundenliste rb-artikelliste">
+                      <li v-if="p.artikelSucheLaeuft" class="rb-gedaempft">Wird gesucht …</li>
+                      <li v-else-if="p.artikelFehler" class="rb-zustand-fehler">{{ p.artikelFehler }}</li>
+                      <li v-else-if="p.artikelListe.length === 0" class="rb-gedaempft">Keine Treffer.</li>
+                      <li
+                        v-for="a in p.artikelListe"
+                        :key="a.id"
+                        class="rb-kunden-eintrag"
+                        @click="artikelWaehlen(p, a)"
+                      >
+                        {{ a.name }} <span class="rb-gedaempft">— {{ a.list_price.toFixed(2) }} €</span>
+                      </li>
+                    </ul>
+                  </template>
+                </div>
+
+                <div class="rb-position-betrag">
+                  <template v-if="p.modus === 'pauschale'">
+                    <label>Betrag (€)</label>
+                    <input v-model.number="p.betrag" type="number" min="0" step="0.01" class="rb-betrag-feld">
+                  </template>
+                  <template v-else>
+                    <label>Stunden</label>
+                    <input v-model.number="p.stunden" type="number" min="0" step="0.01" class="rb-betrag-feld">
+                    <label>Satz (€/Std.)</label>
+                    <input v-model.number="p.stundensatz" type="number" min="0" step="0.01" class="rb-betrag-feld">
+                    <span class="rb-gedaempft rb-position-zwischensumme">
+                      = {{ ((Number(p.stunden) || 0) * (Number(p.stundensatz) || 0)).toFixed(2) }} €
+                    </span>
+                  </template>
+                </div>
+              </div>
+
+              <div class="rb-positionsliste-summe">
+                <span class="rb-gedaempft">Summe</span>
+                <strong>{{ summe.toFixed(2) }} €</strong>
+              </div>
+            </div>
 
             <p v-if="sammelrechnungFehler" class="rb-zustand-fehler">{{ sammelrechnungFehler }}</p>
 
@@ -822,7 +943,7 @@ async function sammelrechnungAbsenden() {
 .rb-modal-fenster {
   background: var(--color-main-background, #fff);
   border-radius: var(--border-radius-large, 10px);
-  width: 560px;
+  width: 640px;
   max-width: 100%;
   max-height: 90vh;
   display: flex;
@@ -904,23 +1025,56 @@ async function sammelrechnungAbsenden() {
 .rb-kunden-eintrag:hover {
   background: var(--color-background-hover, #f5f5f7);
 }
-.rb-positionen {
-  width: 100%;
-  border-collapse: collapse;
+.rb-positionsliste {
   margin-bottom: 12px;
 }
-.rb-positionen th {
-  text-align: left;
+.rb-position {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--color-border, #e0e0e3);
+  border-radius: var(--border-radius, 6px);
+}
+.rb-position-kopf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rb-position-beschreibung {
+  flex: 1;
+  box-sizing: border-box;
   padding: 6px 8px;
+  border-radius: var(--border-radius, 6px);
+  border: 1px solid var(--color-border, #d8d8db);
+  background: var(--color-main-background, #fff);
+  color: var(--color-main-text, #222);
+}
+.rb-modus-umschalter {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--color-border, #d8d8db);
+  border-radius: var(--border-radius, 6px);
+  overflow: hidden;
+}
+.rb-modus-umschalter button {
+  border: none;
+  background: var(--color-main-background, #fff);
+  color: var(--color-main-text, #222);
+  padding: 6px 10px;
   font-size: 0.8em;
-  color: var(--color-text-maxcontrast, #767676);
-  border-bottom: 1px solid var(--color-border, #e0e0e3);
+  cursor: pointer;
 }
-.rb-positionen td {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--color-border, #eee);
+.rb-modus-umschalter button + button {
+  border-left: 1px solid var(--color-border, #d8d8db);
 }
-.rb-positionen input[type='text'] {
+.rb-modus-umschalter button.rb-modus-aktiv {
+  background: var(--color-primary-element, #0069c2);
+  color: #fff;
+}
+.rb-position-artikel {
+  margin-bottom: 8px;
+}
+.rb-position-artikel > input[type='text'] {
   width: 100%;
   box-sizing: border-box;
   padding: 6px 8px;
@@ -928,6 +1082,19 @@ async function sammelrechnungAbsenden() {
   border: 1px solid var(--color-border, #d8d8db);
   background: var(--color-main-background, #fff);
   color: var(--color-main-text, #222);
+}
+.rb-artikelliste {
+  max-height: 120px;
+}
+.rb-position-betrag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.rb-position-betrag label {
+  font-size: 0.8em;
+  color: var(--color-text-maxcontrast, #767676);
 }
 .rb-betrag-feld {
   width: 90px;
@@ -939,10 +1106,15 @@ async function sammelrechnungAbsenden() {
   color: var(--color-main-text, #222);
   text-align: right;
 }
-.rb-positionen tfoot td {
-  border-bottom: none;
+.rb-position-zwischensumme {
+  margin-left: auto;
+  font-size: 0.85em;
+}
+.rb-positionsliste-summe {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 4px 0;
   border-top: 2px solid var(--color-border, #e0e0e3);
-  font-weight: 600;
 }
 .rb-modal-aktionen {
   display: flex;

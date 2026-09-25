@@ -99,33 +99,84 @@ class OdooClient {
 	}
 
 	/**
-	 * Legt einen Rechnungsentwurf in Odoo an: eine Position je übergebenem
-	 * Eintrag (Freitext-Beschreibung + manuell eingetragener Betrag),
-	 * Menge fest auf 1 — es gibt hier keinen Stundensatz/keine Mengenlogik,
-	 * der Betrag ist bereits die gewünschte Positionssumme.
+	 * Sucht verkaufbare Artikel (product.product) für die Positionsauswahl
+	 * im Sammelrechnungs-Dialog — jede Position braucht zwingend einen
+	 * Odoo-Artikel, damit Steuer/Erlöskonto aus Odoo selbst kommen statt
+	 * frei erfunden zu werden.
 	 *
-	 * @param array<int,array{beschreibung:string,betrag:float}> $positionen
+	 * @return array<int,array{id:int,name:string,list_price:float,code:?string}>
+	 */
+	public function artikel(string $suche = '', int $limit = 20): array {
+		$domain = [['sale_ok', '=', true]];
+		if ($suche !== '') {
+			$domain[] = ['name', 'ilike', $suche];
+		}
+
+		$treffer = $this->ausfuehren('product.product', 'search_read', [$domain], [
+			'fields' => ['id', 'name', 'list_price', 'default_code'],
+			'limit' => $limit,
+			'order' => $suche !== '' ? 'name asc' : 'write_date desc',
+		]);
+
+		return array_map(static fn (array $p): array => [
+			'id' => (int)$p['id'],
+			'name' => (string)$p['name'],
+			'list_price' => (float)$p['list_price'],
+			'code' => $p['default_code'] !== false ? (string)$p['default_code'] : null,
+		], $treffer);
+	}
+
+	/**
+	 * Legt einen Rechnungsentwurf in Odoo an: eine Position je übergebenem
+	 * Eintrag, jeweils mit Odoo-Artikel (Pflicht — bestimmt Steuer/Konto)
+	 * und wahlweise zwei Abrechnungsarten:
+	 * - "pauschale": Menge fest 1, Preis = der im Dialog eingetragene
+	 *   Gesamtbetrag der Position
+	 * - "stunden": Menge = übertragene Stunden (Vorschlag aus Redmines
+	 *   spent_hours, im Dialog editierbar), Preis = Stundensatz (Vorschlag
+	 *   aus dem Verkaufspreis des gewählten Artikels, ebenfalls editierbar)
+	 *
+	 * @param array<int,array{beschreibung:string,produktId:int,modus:string,betrag?:float|string|null,stunden?:float|string|null,stundensatz?:float|string|null}> $positionen
 	 * @return array{id:int,url:string}
 	 */
 	public function sammelrechnungErstellen(int $partnerId, array $positionen): array {
 		$zeilen = [];
 		foreach ($positionen as $position) {
 			$beschreibung = trim((string)($position['beschreibung'] ?? ''));
-			$betrag = (float)($position['betrag'] ?? 0);
-			if ($beschreibung === '' || $betrag <= 0) {
+			$produktId = (int)($position['produktId'] ?? 0);
+			$modus = (string)($position['modus'] ?? 'pauschale');
+
+			if ($beschreibung === '' || $produktId <= 0) {
 				continue;
 			}
+
+			if ($modus === 'stunden') {
+				$menge = (float)($position['stunden'] ?? 0);
+				$preis = (float)($position['stundensatz'] ?? 0);
+			} else {
+				$menge = 1.0;
+				$preis = (float)($position['betrag'] ?? 0);
+			}
+
+			if ($menge <= 0 || $preis <= 0) {
+				continue;
+			}
+
 			// Odoos "Command"-Tupel für One2many-Felder: (0, 0, Werte) =
-			// neue verknüpfte Zeile anlegen.
+			// neue verknüpfte Zeile anlegen. `product_id` sorgt dafür, dass
+			// Odoo Steuer/Erlöskonto des Artikels zieht, `name` überschreibt
+			// nur die sichtbare Positionsbezeichnung (Ticketbezug bleibt
+			// lesbar, statt nur dem generischen Artikelnamen).
 			$zeilen[] = [0, 0, [
+				'product_id' => $produktId,
 				'name' => $beschreibung,
-				'quantity' => 1,
-				'price_unit' => $betrag,
+				'quantity' => $menge,
+				'price_unit' => $preis,
 			]];
 		}
 
 		if (count($zeilen) === 0) {
-			throw new \RuntimeException('Keine gültige Position (Beschreibung + Betrag > 0 nötig).');
+			throw new \RuntimeException('Keine gültige Position (Artikel + Beschreibung + Betrag bzw. Stunden/Satz > 0 nötig).');
 		}
 
 		$id = $this->ausfuehren('account.move', 'create', [[
