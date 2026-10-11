@@ -4,6 +4,7 @@ import { api } from '../lib/api.js'
 
 const formulardaten = ref({ tracker: [], prioritaet: [], projekte: [] })
 const mitglieder = ref([])
+const mitarbeiterListe = ref([])
 const fehler = ref(null)
 const ladend = ref(true)
 const speichernLaeuft = ref(false)
@@ -18,6 +19,33 @@ const formular = reactive({
   start_date: '',
   due_date: '',
 })
+
+// Redmine-unabhängig: wer das Ticket in der eingeschränkten "Meine
+// Tickets"-Ansicht sieht — siehe api.mitarbeiterListe() und den Kommentar
+// bei "Zugewiesen an" weiter unten im Formular.
+const zustaendigerMitarbeiter = ref(null)
+
+// Kein Redmine-Feld — steuert nur, ob auf der Übersichtsseite später ein
+// Häkchen "Rechnung gestellt" zu diesem Ticket erscheint (siehe
+// RechnungsStatusService). Standardmäßig angehakt, da die meisten Tickets
+// abrechenbare Kundentickets sind — bei internen/nicht abrechenbaren
+// Tickets einfach beim Anlegen abhaken.
+const rechnungspflichtig = ref(true)
+
+// Ebenfalls kein Redmine-Feld, ebenfalls optional — meist steht der genaue
+// Betrag/Stundensatz bei der Neuanlage noch nicht fest und wird erst später
+// im Ticket nachgetragen. Fließt bei der Sammelrechnung als Vorschlag ein.
+const abrechnungsart = ref('')
+const pauschalbetrag = ref(null)
+const stundensatz = ref(null)
+const bemerkung = ref('')
+// Nur für "Pauschale + Zeitzuschlag": die Pauschale deckt `inklusivMinuten`
+// ab, danach wird je angefangenem Takt `taktPreis` berechnet. Vorbelegt mit
+// dem üblichen Modell (60 Min. inklusive, 15-Min.-Takt, 12,50 € je Takt),
+// je Ticket änderbar.
+const inklusivMinuten = ref(60)
+const taktMinuten = ref(15)
+const taktPreis = ref(12.5)
 
 onMounted(async () => {
   try {
@@ -34,6 +62,13 @@ onMounted(async () => {
     fehler.value = e.message
   } finally {
     ladend.value = false
+  }
+
+  try {
+    const antwort = await api.mitarbeiterListe()
+    mitarbeiterListe.value = antwort.mitarbeiter || []
+  } catch {
+    mitarbeiterListe.value = []
   }
 })
 
@@ -62,7 +97,15 @@ async function speichern() {
   speichernLaeuft.value = true
   fehler.value = null
   try {
-    const antwort = await api.ticketErstellen({ ...formular })
+    const antwort = await api.ticketErstellen({ ...formular }, rechnungspflichtig.value, {
+      abrechnungsart: abrechnungsart.value || null,
+      pauschalbetrag: (abrechnungsart.value === 'pauschale' || abrechnungsart.value === 'pauschale_zuschlag') && pauschalbetrag.value !== null ? Number(pauschalbetrag.value) : null,
+      stundensatz: abrechnungsart.value === 'stunden' && stundensatz.value !== null ? Number(stundensatz.value) : null,
+      bemerkung: bemerkung.value.trim() || null,
+      inklusivMinuten: abrechnungsart.value === 'pauschale_zuschlag' ? Number(inklusivMinuten.value) || 0 : null,
+      taktMinuten: abrechnungsart.value === 'pauschale_zuschlag' ? Number(taktMinuten.value) || 0 : null,
+      taktPreis: abrechnungsart.value === 'pauschale_zuschlag' ? Number(taktPreis.value) || 0 : null,
+    }, zustaendigerMitarbeiter.value)
     // Direkt zur Detailseite des neu angelegten Tickets — dort entsteht
     // beim ersten Aufruf automatisch der Ablage-Ordner.
     window.location.hash = `#/tickets/${antwort.ticket.id}`
@@ -127,12 +170,72 @@ function zurueck() {
           </select>
         </label>
         <label>
+          <span class="rb-label">Zuständiger Mitarbeiter</span>
+          <select v-model="zustaendigerMitarbeiter" class="rb-eingabe">
+            <option :value="null">— Niemand —</option>
+            <option v-for="m in mitarbeiterListe" :key="m.uid" :value="m.uid">{{ m.name }}</option>
+          </select>
+        </label>
+        <label>
           <span class="rb-label">Start</span>
           <input v-model="formular.start_date" type="date" class="rb-eingabe">
         </label>
         <label>
           <span class="rb-label">Fällig am</span>
           <input v-model="formular.due_date" type="date" class="rb-eingabe">
+        </label>
+      </div>
+
+      <label class="rb-checkbox-zeile">
+        <input type="checkbox" v-model="rechnungspflichtig">
+        <span>Rechnung erforderlich</span>
+      </label>
+
+      <div v-if="rechnungspflichtig" class="rb-rechnungsdaten">
+        <div class="rb-modus-umschalter">
+          <button
+            type="button"
+            :class="{ 'rb-modus-aktiv': abrechnungsart === 'pauschale' }"
+            @click="abrechnungsart = abrechnungsart === 'pauschale' ? '' : 'pauschale'"
+          >Pauschale</button>
+          <button
+            type="button"
+            :class="{ 'rb-modus-aktiv': abrechnungsart === 'stunden' }"
+            @click="abrechnungsart = abrechnungsart === 'stunden' ? '' : 'stunden'"
+          >Nach Stunden</button>
+          <button
+            type="button"
+            :class="{ 'rb-modus-aktiv': abrechnungsart === 'pauschale_zuschlag' }"
+            @click="abrechnungsart = abrechnungsart === 'pauschale_zuschlag' ? '' : 'pauschale_zuschlag'"
+          >Pauschale + Zeitzuschlag</button>
+        </div>
+
+        <label v-if="abrechnungsart === 'pauschale' || abrechnungsart === 'pauschale_zuschlag'" class="rb-rechnungsdaten-feld">
+          <span class="rb-label">{{ abrechnungsart === 'pauschale_zuschlag' ? 'Pauschale (€)' : 'Rechnungsbetrag (€)' }}</span>
+          <input v-model.number="pauschalbetrag" type="number" min="0" step="0.01" class="rb-eingabe rb-betrag-feld">
+        </label>
+        <template v-if="abrechnungsart === 'pauschale_zuschlag'">
+          <label class="rb-rechnungsdaten-feld">
+            <span class="rb-label">Inklusivzeit (Min.)</span>
+            <input v-model.number="inklusivMinuten" type="number" min="0" step="1" class="rb-eingabe rb-betrag-feld">
+          </label>
+          <label class="rb-rechnungsdaten-feld">
+            <span class="rb-label">Takt danach (Min.)</span>
+            <input v-model.number="taktMinuten" type="number" min="1" step="1" class="rb-eingabe rb-betrag-feld">
+          </label>
+          <label class="rb-rechnungsdaten-feld">
+            <span class="rb-label">Preis je Takt (€)</span>
+            <input v-model.number="taktPreis" type="number" min="0" step="0.01" class="rb-eingabe rb-betrag-feld">
+          </label>
+        </template>
+        <label v-if="abrechnungsart === 'stunden'" class="rb-rechnungsdaten-feld">
+          <span class="rb-label">Stundensatz (€/h)</span>
+          <input v-model.number="stundensatz" type="number" min="0" step="0.01" class="rb-eingabe rb-betrag-feld">
+        </label>
+
+        <label class="rb-rechnungsdaten-feld rb-rechnungsdaten-bemerkung">
+          <span class="rb-label">Bemerkung</span>
+          <input v-model="bemerkung" type="text" class="rb-eingabe" placeholder="z. B. Anfahrtspauschale — fließt später in die Rechnungsposition ein">
         </label>
       </div>
 
@@ -217,6 +320,62 @@ textarea.rb-eingabe {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.rb-checkbox-zeile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9em;
+  color: var(--color-main-text, #222);
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+
+.rb-rechnungsdaten {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+  margin: -4px 0 16px;
+  padding: 12px 16px;
+  background: var(--color-background-hover, #f4f4f6);
+  border-radius: var(--border-radius, 6px);
+}
+.rb-rechnungsdaten-feld {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rb-rechnungsdaten-bemerkung {
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+.rb-modus-umschalter {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--color-border, #d8d8db);
+  border-radius: var(--border-radius, 6px);
+  overflow: hidden;
+}
+.rb-modus-umschalter button {
+  border: none;
+  background: var(--color-main-background, #fff);
+  color: var(--color-main-text, #222);
+  padding: 6px 10px;
+  font-size: 0.8em;
+  cursor: pointer;
+}
+.rb-modus-umschalter button + button {
+  border-left: 1px solid var(--color-border, #d8d8db);
+}
+.rb-modus-umschalter button.rb-modus-aktiv {
+  background: var(--color-primary-element, #0069c2);
+  color: #fff;
+}
+.rb-betrag-feld {
+  width: 110px;
+  box-sizing: border-box;
 }
 
 .rb-aktionen {

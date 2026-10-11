@@ -1,6 +1,5 @@
 {
   "name": "redmine_bridge",
-  "version": "0.1.0",
   "private": true,
   "scripts": {
     "build": "vite build",

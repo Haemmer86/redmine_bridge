@@ -14,13 +14,14 @@ use OCP\Files\NotPermittedException;
  * genau wie AblageService in IKS Vorgänge, nur ohne eigene Datenbank im
  * Rücken.
  *
- * ⚠️ Wichtiger Unterschied zu IKS Vorgänge: Dort wird der Ordner über eine
- * gespeicherte Datei-ID wiedergefunden (überlebt Umbenennungen). Hier gibt es
- * keine solche Speicherung — der Ordner wird bei JEDEM Aufruf aus Projekt,
- * Jahr, Ticketnummer und Betreff neu berechnet. Ändert sich der Betreff in
- * Redmine, entsteht beim nächsten Aufruf ein NEUER Ordner statt den
- * bestehenden umzubenennen. Bewusste Vereinfachung fürs Erste — bei Bedarf
- * später um eine schlanke Zuordnungstabelle (Ticket-ID → Datei-ID) ergänzbar.
+ * Ordner werden anhand der Ticketnummer wiedergefunden (Präfix "#<Nummer>"
+ * im Ordnernamen, siehe {@see ordnerFuerNummerFinden()}), nicht anhand des
+ * vollständigen Namens — ändert sich der Betreff in Redmine, wird der
+ * bestehende Ordner beim nächsten Aufruf umbenannt statt ein zweiter
+ * angelegt. Wechselt das Ticket dagegen Projekt oder Jahr, liegt der
+ * bisherige Ordner in einem anderen Eltern-Ordner und wird dort nicht
+ * gefunden — dafür bräuchte es eine echte Ticket-ID → Datei-ID-Zuordnung,
+ * die es hier (bewusst, ohne eigene Datenbank) nicht gibt.
  */
 class AblageService {
 
@@ -47,10 +48,59 @@ class AblageService {
 		$nummer = (int)($ticket['id'] ?? 0);
 		$betreff = (string)($ticket['subject'] ?? '');
 
-		$pfad = $this->schema->ordnerPfad($projekt, $jahr, $nummer, $betreff);
-		$wurzel = $this->rootFolder->getUserFolder($userId);
+		$projektName = $this->schema->bereinige($projekt);
+		if ($projektName === '') {
+			$projektName = '_Ohne Projekt';
+		}
+		$elternPfad = $this->schema->basisPfad() . '/' . $projektName . '/' . $jahr;
+		$zielName = $this->schema->ordnerName($nummer, $betreff);
 
-		return $this->ordnerAnlegen($wurzel, $pfad);
+		$wurzel = $this->rootFolder->getUserFolder($userId);
+		$eltern = $this->ordnerAnlegen($wurzel, $elternPfad);
+
+		return $this->ordnerFuerNummerFinden($eltern, $nummer, $zielName);
+	}
+
+	/**
+	 * Sucht im Eltern-Ordner (Projekt/Jahr) nach einem bereits vorhandenen
+	 * Ticket-Ordner anhand der Ticketnummer — am Präfix "#<Nummer>" im
+	 * Ordnernamen erkannt, unabhängig vom aktuell gespeicherten Betreff.
+	 * Weicht der gefundene Name vom gewünschten ab (Betreff wurde in
+	 * Redmine geändert), wird der Ordner umbenannt statt ein zweiter
+	 * angelegt. Existiert noch keiner, wird er neu erstellt.
+	 *
+	 * "#4" darf dabei nicht auf den Ordner von Ticket #41 passen — deshalb
+	 * nur exakte Übereinstimmung oder ein Präfix, dem direkt " - " oder ein
+	 * Leerzeichen folgt, nie ein reines str_starts_with auf die nackte
+	 * Nummer.
+	 */
+	private function ordnerFuerNummerFinden(Folder $eltern, int $nummer, string $zielName): Folder {
+		$praefix = '#' . $nummer;
+		foreach ($eltern->getDirectoryListing() as $knoten) {
+			if (!($knoten instanceof Folder)) {
+				continue;
+			}
+			$name = $knoten->getName();
+			if ($name !== $praefix && !str_starts_with($name, $praefix . ' - ') && !str_starts_with($name, $praefix . ' ')) {
+				continue;
+			}
+
+			if ($name === $zielName) {
+				return $knoten;
+			}
+
+			try {
+				return $knoten->move($eltern->getPath() . '/' . $zielName);
+			} catch (\Throwable) {
+				// Umbenennen fehlgeschlagen (z. B. Namenskollision mit
+				// einem anderen Ordner) — lieber den bestehenden Ordner
+				// unter dem alten Namen weiterverwenden als einen zweiten
+				// für dasselbe Ticket anzulegen.
+				return $knoten;
+			}
+		}
+
+		return $eltern->getOrCreateFolder($zielName);
 	}
 
 	/**
@@ -110,13 +160,59 @@ class AblageService {
 	}
 
 	/**
+	 * Legt einen E-Mail-Anhang im Ticket-Ordner ab, benannt nach demselben
+	 * "E-Mail {Datum} {Betreff}"-Schema wie der zugehörige
+	 * Gesprächsverlauf-Eintrag (siehe {@see mailVerlaufAblegen()}) — Anhang
+	 * und E-Mail-Text bekommen dadurch denselben Anfang, stehen im Ordner
+	 * direkt nebeneinander und sind auf den ersten Blick als zusammengehörig
+	 * erkennbar, statt unter ihrem oft unaussagekräftigen Originalnamen
+	 * (z. B. "Scan0001.pdf") zu verschwinden. Datum wird bewusst identisch
+	 * zu {@see mailVerlaufAblegen()} geparst, damit beide Namen exakt
+	 * übereinstimmen.
+	 *
+	 * @param resource|string $inhalt
+	 */
+	public function mailAnhangAblegen(
+		array $ticket,
+		string $userId,
+		string $betreff,
+		?\DateTimeImmutable $datum,
+		string $dateiname,
+		mixed $inhalt,
+	): File {
+		$ordner = $this->ordnerFuerTicket($ticket, $userId);
+		$zeitpunkt = $datum ?? new \DateTimeImmutable();
+		$endung = pathinfo($dateiname, PATHINFO_EXTENSION);
+		$originalOhneEndung = pathinfo($dateiname, PATHINFO_FILENAME);
+
+		$basis = $this->schema->bereinige(
+			'E-Mail ' . $zeitpunkt->format('Y-m-d H-i') . ' ' . $betreff . ' - ' . $originalOhneEndung
+		);
+		if ($basis === '') {
+			$basis = 'Anhang';
+		}
+
+		$reserviert = $endung !== '' ? strlen($endung) + 1 : 0;
+		$name = $this->schema->kuerze($basis, $reserviert) . ($endung !== '' ? '.' . $endung : '');
+		$i = 2;
+		while ($ordner->nodeExists($name)) {
+			$zusatz = " ({$i})";
+			$reserviert = strlen($zusatz) + ($endung !== '' ? strlen($endung) + 1 : 0);
+			$name = $this->schema->kuerze($basis, $reserviert) . $zusatz . ($endung !== '' ? '.' . $endung : '');
+			$i++;
+		}
+
+		return $ordner->newFile($name, $inhalt);
+	}
+
+	/**
 	 * Legt einen Verweis (z. B. auf ein Paperless-ngx-Dokument) als kleine
 	 * Verknüpfungsdatei im Ticket-Ordner ab.
 	 *
 	 * Nextclouds eigener Dateibrowser öffnet eine `.url`-Datei nicht
 	 * automatisch im Ziel — die App selbst erkennt das Format beim
 	 * Auflisten der Ablage und macht daraus einen anklickbaren Verweis
-	 * (siehe ApiController::ablageInfo()). Die physische Datei bleibt
+	 * (siehe AblageAnsichtService::fuerTicket()). Die physische Datei bleibt
 	 * trotzdem bestehen: Wer den Ordner direkt in Nextcloud durchsucht,
 	 * findet dort wenigstens den Namen und kann die Adresse im
 	 * Dateiinhalt nachlesen.
@@ -148,7 +244,7 @@ class AblageService {
 	 * unsere eigenen Notizen von irgendeiner beliebigen, händisch
 	 * hochgeladenen `.txt`-Datei — nur Dateien mit diesem Kopf bekommen in
 	 * der Oberfläche die besondere Notiz-Darstellung (Symbol, Ansprechpartner
-	 * hervorgehoben usw.), siehe ApiController::ablageInfo().
+	 * hervorgehoben usw.), siehe AblageAnsichtService::fuerTicket().
 	 */
 	public function notizAblegen(
 		array $ticket,

@@ -51,5 +51,39 @@ export const mailApi = {
     holen(`/apps/mail/api/messages?mailboxId=${postfachId}&limit=${limit}`).then((a) => alsListe(a, 'messages')),
   // Der rohe MIME-Quelltext der Nachricht — genau das Format, das eine
   // .eml-Datei erwartet.
-  nachrichtQuelle: (nachrichtId) => holen(`/apps/mail/api/messages/${nachrichtId}/source`, true),
+  //
+  // Die Mail-App liefert hier trotz "roherText" KEINEN reinen Text, sondern
+  // ein JSON-Objekt {"source": "..."} — deshalb hier auspacken. Ohne das
+  // landet der komplette JSON-String (eine einzige Zeile ohne echte
+  // Zeilenumbrüche, da JSON \r\n nur als zwei Zeichen escaped statt als
+  // echtes CRLF) im MIME-Parser, der dann mangels erkennbarer Kopfzeilen
+  // leer zurückfällt — genau der Fehler, der den kurzen Vorschautext statt
+  // des vollständigen Mailtexts übrig ließ.
+  async nachrichtQuelle(nachrichtId) {
+    const roh = await holen(`/apps/mail/api/messages/${nachrichtId}/source`, true)
+    try {
+      const eingepackt = JSON.parse(roh)
+      if (eingepackt && typeof eingepackt.source === 'string') {
+        return eingepackt.source
+      }
+    } catch {
+      // Antwort war doch bereits reiner Text (z. B. bei einer künftigen
+      // Änderung der Mail-App) — dann direkt verwenden statt abzubrechen.
+    }
+    return roh
+  },
+
+  // Anhänge kommen bereits mit vollständiger, direkt aufrufbarer Adresse aus
+  // der Nachrichtenliste (Feld "downloadUrl") - hier reicht ein einfacher
+  // fetch() mit demselben Sicherheits-Kopfeintrag wie bei allen anderen
+  // Mail-App-Aufrufen.
+  async nachrichtAnhangHolen(downloadUrl) {
+    const antwort = await fetch(downloadUrl, {
+      headers: { 'OCS-APIRequest': 'true' },
+    })
+    if (!antwort.ok) {
+      throw new Error(`Anhang-Download fehlgeschlagen (${antwort.status})`)
+    }
+    return antwort.blob()
+  },
 }

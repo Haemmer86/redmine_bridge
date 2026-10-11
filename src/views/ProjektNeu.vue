@@ -315,11 +315,6 @@ textarea.rb-eingabe {
   font-family: inherit;
 }
 
-.rb-aktionen {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--color-border, #eee);
-}
 .rb-knopf-primaer {
   display: inline-flex;
   align-items: center;

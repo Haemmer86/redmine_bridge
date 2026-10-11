@@ -1,7 +1,11 @@
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, watch, computed } from 'vue'
+import { ref, reactive, onMounted, watch, computed } from 'vue'
 import { api } from '../lib/api.js'
-import { mailApi } from '../lib/mailApi.js'
+import TicketZeiterfassung from '../components/TicketZeiterfassung.vue'
+import TicketAbrechnung from '../components/TicketAbrechnung.vue'
+import TicketKommentare from '../components/TicketKommentare.vue'
+import TicketAblage from '../components/TicketAblage.vue'
+import DateiVorschau from '../components/DateiVorschau.vue'
 
 const props = defineProps({
   id: { type: Number, required: true },
@@ -13,6 +17,7 @@ const ordnerFehler = ref(null)
 const dateien = ref([])
 const formulardaten = ref({ tracker: [], status: [], prioritaet: [], projekte: [] })
 const mitglieder = ref([])
+const mitarbeiterListe = ref([])
 const ladend = ref(true)
 const speichernLaeuft = ref(false)
 const fehler = ref(null)
@@ -35,6 +40,21 @@ const formular = reactive({
   estimated_hours: null,
 })
 
+// Redmine-unabhängig: wer dieses Ticket in der eingeschränkten "Meine
+// Tickets"-Ansicht sieht (siehe api.mitarbeiterListe()/zustaendigerMitarbeiterSetzen()
+// und TicketZustaendigkeitService) — bewusst getrennt von `formular`, da es
+// kein Redmine-Feld ist und über einen eigenen Endpunkt gespeichert wird,
+// statt mit `{ ...formular }` an ticketAktualisieren() durchgereicht zu
+// werden (das würde die Zuordnung still verwerfen, siehe speichern() unten).
+const zustaendigerMitarbeiter = ref(null)
+
+// Schnappschuss des zuletzt geladenen/gespeicherten Formularstands — Grundlage
+// für die "ungespeicherte Änderungen"-Erkennung beim Verlassen der Seite
+// (siehe `hatUngespeicherteAenderungen` und `zurueck()` unten). Als String statt
+// als Objekt gehalten, damit ein einfacher Vergleich reicht, ohne bei jedem
+// Tastendruck jedes Feld einzeln gegenzuprüfen.
+const formularSchnappschuss = ref('')
+
 function uebernehmen(t) {
   formular.subject = t.subject || ''
   formular.description = t.description || ''
@@ -46,7 +66,13 @@ function uebernehmen(t) {
   formular.due_date = t.due_date || ''
   formular.done_ratio = t.done_ratio ?? 0
   formular.estimated_hours = t.estimated_hours ?? null
+  zustaendigerMitarbeiter.value = t.zustaendigerMitarbeiter ?? null
+  formularSchnappschuss.value = JSON.stringify({ ...formular, zustaendigerMitarbeiter: zustaendigerMitarbeiter.value })
 }
+
+const hatUngespeicherteAenderungen = computed(() =>
+  JSON.stringify({ ...formular, zustaendigerMitarbeiter: zustaendigerMitarbeiter.value }) !== formularSchnappschuss.value,
+)
 
 async function laden() {
   ladend.value = true
@@ -79,6 +105,12 @@ onMounted(async () => {
     // Ohne Formulardaten lassen sich die Auswahllisten nicht befüllen —
     // die Maske zeigt dann leere Dropdowns, ist aber nicht blockiert.
   }
+  try {
+    const antwort = await api.mitarbeiterListe()
+    mitarbeiterListe.value = antwort.mitarbeiter || []
+  } catch {
+    mitarbeiterListe.value = []
+  }
 })
 
 watch(() => props.id, laden)
@@ -89,11 +121,21 @@ async function speichern() {
   gespeichertHinweis.value = false
   try {
     const antwort = await api.ticketAktualisieren(props.id, { ...formular })
-    ticket.value = antwort.ticket
+    const frischesTicket = antwort.ticket
+
+    // Kein Redmine-Feld, deshalb über einen eigenen Endpunkt gespeichert —
+    // nur aufgerufen, wenn sich tatsächlich etwas geändert hat, damit ein
+    // bloßes erneutes Speichern nicht unnötig die Zuordnungstabelle anfasst.
+    if (zustaendigerMitarbeiter.value !== (ticket.value?.zustaendigerMitarbeiter ?? null)) {
+      const zAntwort = await api.zustaendigerMitarbeiterSetzen(props.id, zustaendigerMitarbeiter.value)
+      if (frischesTicket) frischesTicket.zustaendigerMitarbeiter = zAntwort.zustaendigerMitarbeiter
+    }
+
+    ticket.value = frischesTicket
     ordnerPfad.value = antwort.ordnerPfad
     ordnerFehler.value = antwort.ordnerFehler
     dateien.value = antwort.dateien
-    uebernehmen(antwort.ticket)
+    uebernehmen(frischesTicket)
     gespeichertHinweis.value = true
     setTimeout(() => { gespeichertHinweis.value = false }, 3000)
   } catch (e) {
@@ -103,118 +145,16 @@ async function speichern() {
   }
 }
 
-const dateiInput = ref(null)
-const hochladeLaeuft = ref(false)
-
-async function dateiAusgewaehlt(ereignis) {
-  const datei = ereignis.target.files[0]
-  if (!datei) return
-  hochladeLaeuft.value = true
-  fehler.value = null
-  try {
-    const antwort = await api.dateiHochladen(props.id, datei)
-    ordnerPfad.value = antwort.ordnerPfad
-    ordnerFehler.value = antwort.ordnerFehler
-    dateien.value = antwort.dateien
-  } catch (e) {
-    fehler.value = e.message
-  } finally {
-    hochladeLaeuft.value = false
-    if (dateiInput.value) dateiInput.value.value = ''
-  }
+// ─── Ablage-Stand, Fehlermeldungen und Vorschau der Unterkomponenten ───────
+function ablageUebernehmen(stand) {
+  ordnerPfad.value = stand.ordnerPfad
+  ordnerFehler.value = stand.ordnerFehler
+  dateien.value = stand.dateien
 }
-
-function zurueck() {
-  window.location.hash = ''
-}
-
-function groesseFormatieren(bytes) {
-  if (bytes < 1024) return `${bytes} B`
-  return `${Math.round(bytes / 1024)} KB`
-}
-
-// Zeigt an, wann eine Datei zuletzt abgelegt/geändert wurde — "geaendert"
-// kommt vom Server als Unix-Zeitstempel (Sekunden), daher die *1000 für JS.
-function hochladeDatumFormatieren(zeitstempel) {
-  if (!zeitstempel) return ''
-  const dt = new Date(zeitstempel * 1000)
-  const zweistellig = (n) => String(n).padStart(2, '0')
-  return `${dt.getFullYear()}-${zweistellig(dt.getMonth() + 1)}-${zweistellig(dt.getDate())} ${zweistellig(dt.getHours())}:${zweistellig(dt.getMinutes())}`
-}
-
-// Öffnet den Ablage-Ordner direkt in Nextclouds eigener Dateien-App, in
-// einem neuen Tab — der "dir"-Parameter ist dort seit jeher der Weg, eine
-// bestimmte Stelle im Dateibaum zu adressieren.
-function ordnerOeffnenUrl() {
-  if (!ordnerPfad.value) return '#'
-  const ziel = '/' + ordnerPfad.value
-  const basis = typeof window !== 'undefined' && window.OC && typeof window.OC.generateUrl === 'function'
-    ? window.OC.generateUrl('/apps/files/files')
-    : '/apps/files/files'
-  return `${basis}?dir=${encodeURIComponent(ziel)}`
-}
-
-// Nextclouds eigener Vorschau-Dienst — derselbe, den auch die Dateien-App
-// und Vorgänge nutzen. Braucht keinen eigenen Baustein: Bild einfach mit
-// der Datei-ID anfragen, Nextcloud liefert eine passend zugeschnittene
-// Voransicht (bei PDFs die erste Seite, bei Office-Dateien den Inhalt).
-function vorschauUrl(dateiId, groesse = 256) {
-  const pfad = `/core/preview?fileId=${dateiId}&x=${groesse}&y=${groesse}&a=1&mode=fit`
-  if (typeof window !== 'undefined' && window.OC && typeof window.OC.generateUrl === 'function') {
-    return window.OC.generateUrl(pfad)
-  }
-  return pfad
-}
-
-// Nextclouds "Direktlink" — leitet zur Datei an ihrem tatsächlichen Ort in
-// der Dateien-App weiter, inklusive automatisch geöffnetem Betrachter.
-function vorschauDirektUrl(dateiId) {
-  const pfad = `/f/${dateiId}`
-  if (typeof window !== 'undefined' && window.OC && typeof window.OC.generateUrl === 'function') {
-    return window.OC.generateUrl(pfad)
-  }
-  return pfad
-}
-
-function dateisymbol(mime) {
-  if (!mime) return '📄'
-  if (mime.startsWith('image/')) return '🖼️'
-  if (mime === 'application/pdf') return '📕'
-  if (mime.includes('word')) return '📝'
-  if (mime.includes('sheet') || mime.includes('excel')) return '📊'
-  if (mime.includes('zip') || mime.includes('compressed')) return '🗜️'
-  return '📄'
-}
-
-// Einheitliches Datumsformat für den Gesprächsverlauf — sowohl für unsere
-// eigenen Notizen (schon im Format "YYYY-MM-DD HH:MM") als auch für
-// .eml-Dateien (rohe, unterschiedlich lange E-Mail-Kopfzeile) —, damit
-// beide Zeilentypen optisch gleich aussehen, statt einer kurzen Notiz neben
-// einer langen englischen Datumszeile.
-function datumFormatieren(eintrag) {
-  const iso = eintrag.eml ? eintrag.eml.datumIso : eintrag.notiz?.datumIso
-  if (iso) {
-    const dt = new Date(iso)
-    if (!Number.isNaN(dt.getTime())) {
-      const zweistellig = (n) => String(n).padStart(2, '0')
-      return `${dt.getFullYear()}-${zweistellig(dt.getMonth() + 1)}-${zweistellig(dt.getDate())} ${zweistellig(dt.getHours())}:${zweistellig(dt.getMinutes())}`
-    }
-  }
-  return eintrag.eml ? eintrag.eml.datum : eintrag.notiz?.datum
-}
-
-// ─── Große Vorschau, getrennt von der Liste ─────────────────────────────
-//
-// Die Liste zeigt nur Namen und ein kleines Symbol — erst ein Klick öffnet
-// die eigentliche, große Voransicht in einem eigenen Fenster darüber.
-// Links (.url-Dateien) haben keine solche Vorschau, die öffnen direkt ihr
-// Ziel (siehe Klick-Handler in der Dateizeile selbst).
 
 const vorschauDatei = ref(null)
-const vorschauGrossFehler = ref(false)
 
 function vorschauOeffnen(datei) {
-  vorschauGrossFehler.value = false
   vorschauDatei.value = datei
 }
 
@@ -222,232 +162,25 @@ function vorschauSchliessen() {
   vorschauDatei.value = null
 }
 
-// ─── Datei/Notiz/Link aus der Ablage löschen ────────────────────────────
-
-async function dateiLoeschen(datei) {
-  const anzeigename = datei.notiz
-    ? (datei.notiz.betreff || datei.notiz.art)
-    : datei.url
-      ? datei.name.replace(/\.url$/i, '')
-      : datei.name
-  if (!window.confirm(`"${anzeigename}" wirklich löschen? Das kann nicht rückgängig gemacht werden.`)) {
-    return
-  }
-  fehler.value = null
-  try {
-    const antwort = await api.dateiLoeschen(props.id, datei.id)
-    ordnerPfad.value = antwort.ordnerPfad
-    ordnerFehler.value = antwort.ordnerFehler
-    dateien.value = antwort.dateien
-    if (vorschauDatei.value?.id === datei.id) {
-      vorschauSchliessen()
-    }
-  } catch (e) {
-    fehler.value = 'Löschen fehlgeschlagen: ' + e.message
-  }
+function dateiGeloescht(dateiId) {
+  if (vorschauDatei.value?.id === dateiId) vorschauSchliessen()
 }
 
-function vorschauGrossFehlgeschlagen() {
-  vorschauGrossFehler.value = true
-}
-
-function linkOeffnen(url) {
-  window.open(url, '_blank', 'noopener')
-}
-
-function escTaste(ereignis) {
-  if (ereignis.key === 'Escape' && vorschauDatei.value) vorschauSchliessen()
-}
-onMounted(() => window.addEventListener('keydown', escTaste))
-onUnmounted(() => window.removeEventListener('keydown', escTaste))
-
-// ─── Gesprächsverlauf: E-Mails und Notizen chronologisch, getrennt von den
-// übrigen Dateien (Uploads, Links) ────────────────────────────────────────
-
-const verlaufEintraege = computed(() =>
-  dateien.value
-    .filter((d) => d.eml || d.notiz)
-    .slice()
-    .sort((a, b) => {
-      const da = (a.eml || a.notiz)?.datumIso || ''
-      const db = (b.eml || b.notiz)?.datumIso || ''
-      return db.localeCompare(da) // neueste zuerst
-    }),
-)
-const weitereDateien = computed(() =>
-  dateien.value
-    .filter((d) => !d.eml && !d.notiz)
-    .slice()
-    .sort((a, b) => (b.geaendert || 0) - (a.geaendert || 0)), // neueste (zuletzt hochgeladen/geändert) zuerst
-)
-
-// ─── Aus Posteingang zuordnen (experimentell, siehe mailApi.js) ─────────
-
-const posteingangOffen = ref(false)
-const postfachLaeuft = ref(false)
-const postfachFehler = ref(null)
-const postfachNachrichten = ref([])
-const zuordnenLaeuftFuer = ref(null)
-
-async function posteingangOeffnen() {
-  posteingangOffen.value = true
-  postfachFehler.value = null
-  postfachLaeuft.value = true
-  postfachNachrichten.value = []
-  try {
-    const konten = await mailApi.konten()
-    const konto = konten[0]
-    if (!konto) throw new Error('Kein Mail-Konto gefunden.')
-
-    const postfaecher = await mailApi.postfaecher(konto.id)
-    const posteingang = postfaecher.find((p) => (p.specialUse || []).includes('inbox'))
-      || postfaecher.find((p) => /inbox|posteingang/i.test(p.name || p.displayName || ''))
-      || postfaecher[0]
-    if (!posteingang) throw new Error('Kein Postfach gefunden.')
-
-    postfachNachrichten.value = await mailApi.nachrichten(posteingang.databaseId, 30)
-  } catch (e) {
-    postfachFehler.value = e.message
-  } finally {
-    postfachLaeuft.value = false
-  }
-}
-
-function postfachAbsender(nachricht) {
-  const eintrag = nachricht.from?.[0]
-  return eintrag?.label || eintrag?.email || ''
-}
-
-async function nachrichtZuordnen(nachricht) {
-  zuordnenLaeuftFuer.value = nachricht.databaseId
-  fehler.value = null
-  try {
-    const datumIso = nachricht.dateInt ? new Date(nachricht.dateInt * 1000).toISOString() : ''
-    const antwort = await api.mailVerlaufAblegen(
-      props.id,
-      postfachAbsender(nachricht),
-      nachricht.subject || '(kein Betreff)',
-      nachricht.previewText || '',
-      datumIso,
-      nachricht.messageId || '',
+// Vor dem Verlassen warnen, wenn am Formular oben (Betreff, Beschreibung,
+// Status usw.) etwas geändert, aber noch nicht über den Speichern-Knopf
+// gesichert wurde — die übrigen Bereiche der Seite (Zeiterfassung, Links,
+// Notizen, Dateien, Rechnungsdaten) speichern ohnehin sofort bzw. haben
+// eigene Speichern-Knöpfe und lösen diese Warnung nicht aus.
+function zurueck() {
+  if (hatUngespeicherteAenderungen.value) {
+    const verlassenOhneSpeichern = window.confirm(
+      'Es gibt ungespeicherte Änderungen an diesem Ticket. Trotzdem zur Liste zurückkehren und die Änderungen verwerfen?',
     )
-    ordnerPfad.value = antwort.ordnerPfad
-    ordnerFehler.value = antwort.ordnerFehler
-    dateien.value = antwort.dateien
-    posteingangOffen.value = false
-  } catch (e) {
-    fehler.value = 'Zuordnung fehlgeschlagen: ' + e.message
-  } finally {
-    zuordnenLaeuftFuer.value = null
+    if (!verlassenOhneSpeichern) {
+      return
+    }
   }
-}
-
-// ─── Link ablegen (z. B. Paperless-ngx) ─────────────────────────────────
-
-const linkFormularOffen = ref(false)
-const linkBezeichnung = ref('')
-const linkUrl = ref('')
-const linkSpeichernLaeuft = ref(false)
-
-async function linkSpeichern() {
-  if (!linkBezeichnung.value.trim() || !linkUrl.value.trim()) {
-    fehler.value = 'Bitte Bezeichnung und Adresse eintragen.'
-    return
-  }
-  linkSpeichernLaeuft.value = true
-  fehler.value = null
-  try {
-    const antwort = await api.urlAblegen(props.id, linkBezeichnung.value, linkUrl.value)
-    ordnerPfad.value = antwort.ordnerPfad
-    ordnerFehler.value = antwort.ordnerFehler
-    dateien.value = antwort.dateien
-    linkBezeichnung.value = ''
-    linkUrl.value = ''
-    linkFormularOffen.value = false
-  } catch (e) {
-    fehler.value = e.message
-  } finally {
-    linkSpeichernLaeuft.value = false
-  }
-}
-
-// ─── Notiz / Telefonat ablegen ───────────────────────────────────────────
-
-const notizFormularOffen = ref(false)
-const notizArt = ref('Telefonat')
-const notizAnsprechpartner = ref('')
-const notizText = ref('')
-const notizSpeichernLaeuft = ref(false)
-
-async function notizSpeichern() {
-  if (!notizText.value.trim()) {
-    fehler.value = 'Bitte einen Notiztext eintragen.'
-    return
-  }
-  notizSpeichernLaeuft.value = true
-  fehler.value = null
-  try {
-    const antwort = await api.notizAblegen(props.id, notizArt.value, notizText.value, notizAnsprechpartner.value)
-    ordnerPfad.value = antwort.ordnerPfad
-    ordnerFehler.value = antwort.ordnerFehler
-    dateien.value = antwort.dateien
-    notizText.value = ''
-    notizAnsprechpartner.value = ''
-    notizFormularOffen.value = false
-  } catch (e) {
-    fehler.value = e.message
-  } finally {
-    notizSpeichernLaeuft.value = false
-  }
-}
-
-// ─── Schlagworte ─────────────────────────────────────────────────────────
-
-const alleTagNamen = ref([])
-// Welche Datei gerade ein offenes Eingabefeld für ein neues Schlagwort hat —
-// nur eine gleichzeitig, sonst wird die Kachel-Liste unübersichtlich.
-const tagEingabeFuer = ref(null)
-const neuerTagName = ref('')
-const tagLaeuft = ref(false)
-
-onMounted(() => {
-  api.alleTags().then((a) => { alleTagNamen.value = a.tags.map((t) => t.name) }).catch(() => {})
-})
-
-function tagEingabeOeffnen(dateiId) {
-  tagEingabeFuer.value = dateiId
-  neuerTagName.value = ''
-}
-
-function dateiInListe(dateiId) {
-  return dateien.value.find((d) => d.id === dateiId)
-}
-
-async function tagHinzufuegen(dateiId) {
-  if (!neuerTagName.value.trim()) { tagEingabeFuer.value = null; return }
-  tagLaeuft.value = true
-  fehler.value = null
-  try {
-    const antwort = await api.tagSetzen(dateiId, neuerTagName.value.trim())
-    const d = dateiInListe(dateiId)
-    if (d) d.tags = antwort.tags
-    tagEingabeFuer.value = null
-  } catch (e) {
-    fehler.value = e.message
-  } finally {
-    tagLaeuft.value = false
-  }
-}
-
-async function tagEntfernen(dateiId, tagId) {
-  fehler.value = null
-  try {
-    const antwort = await api.tagEntfernen(dateiId, tagId)
-    const d = dateiInListe(dateiId)
-    if (d) d.tags = antwort.tags
-  } catch (e) {
-    fehler.value = e.message
-  }
+  window.location.hash = ''
 }
 </script>
 
@@ -510,6 +243,13 @@ async function tagEntfernen(dateiId, tagId) {
               </select>
             </label>
             <label>
+              <span class="rb-label">Zuständiger Mitarbeiter</span>
+              <select v-model="zustaendigerMitarbeiter" class="rb-eingabe">
+                <option :value="null">— Niemand —</option>
+                <option v-for="m in mitarbeiterListe" :key="m.uid" :value="m.uid">{{ m.name }}</option>
+              </select>
+            </label>
+            <label>
               <span class="rb-label">Start</span>
               <input v-model="formular.start_date" type="date" class="rb-eingabe">
             </label>
@@ -530,241 +270,52 @@ async function tagEntfernen(dateiId, tagId) {
             </label>
           </div>
 
+          <TicketZeiterfassung
+            :id="id"
+            :spentHours="ticket.spent_hours"
+            @aktualisiert="ticket = $event"
+          />
+
+          <TicketAbrechnung
+            :id="id"
+            :rechnungsstatus="ticket.rechnungsstatus"
+            :spentHours="ticket.spent_hours"
+            @aktualisiert="ticket.rechnungsstatus = $event"
+          />
+
           <div class="rb-aktionen">
             <button class="rb-knopf-primaer" :disabled="speichernLaeuft" @click="speichern">
               <span v-if="speichernLaeuft" class="rb-spinner rb-spinner-hell"></span>
               {{ speichernLaeuft ? 'Speichert …' : 'Speichern' }}
             </button>
           </div>
+
+          <TicketKommentare
+            :id="id"
+            :journals="ticket.journals"
+            @aktualisiert="ticket = $event"
+            @fehler="fehler = $event"
+          />
         </section>
 
-        <aside class="rb-karte rb-ablage-spalte">
-          <h2 class="rb-kartentitel">Ablage</h2>
-
-          <p v-if="ordnerFehler" class="rb-meldung rb-meldung-fehler">
-            Ordner konnte nicht erstellt/gelesen werden: {{ ordnerFehler }}
-          </p>
-          <template v-else>
-            <p class="rb-ordnerpfad">
-              <span class="rb-gedaempft">Ordner:</span><br><code>{{ ordnerPfad }}</code>
-            </p>
-            <a :href="ordnerOeffnenUrl()" target="_blank" rel="noopener" class="rb-ordner-oeffnen">
-              📁 Ordner in Dateien öffnen
-            </a>
-
-            <template v-if="verlaufEintraege.length">
-              <h3 class="rb-unterueberschrift">Gesprächsverlauf</h3>
-              <ul class="rb-dateiliste">
-                <li v-for="d in verlaufEintraege" :key="d.id" class="rb-dateizeile">
-                  <div class="rb-dateizeile-reihe">
-                    <button
-                      type="button"
-                      class="rb-dateizeile-knopf"
-                      title="Vorschau öffnen"
-                      @click="vorschauOeffnen(d)"
-                    >
-                      <span class="rb-dateisymbol-klein">{{ d.eml ? '✉️' : d.notiz.art === 'Telefonat' ? '📞' : d.notiz.art === 'E-Mail' ? '✉️' : '📝' }}</span>
-                      <span class="rb-dateiname" :title="d.name">
-                        <template v-if="d.eml">{{ d.eml.betreff || d.name }}</template>
-                        <template v-else-if="d.notiz.art === 'E-Mail'">{{ d.notiz.betreff }}</template>
-                        <template v-else>{{ d.notiz.art }}<span v-if="d.notiz.ansprechpartner"> – {{ d.notiz.ansprechpartner }}</span></template>
-                      </span>
-                      <span class="rb-gedaempft rb-dateigroesse">{{ datumFormatieren(d) }}</span>
-                    </button>
-                    <button type="button" class="rb-datei-loeschen" title="Löschen" @click="dateiLoeschen(d)">🗑</button>
-                  </div>
-
-                  <div class="rb-tag-bereich">
-                    <span v-for="t in d.tags" :key="t.id" class="rb-tag-chip">
-                      {{ t.name }}
-                      <button type="button" class="rb-tag-entfernen" title="Schlagwort entfernen" @click="tagEntfernen(d.id, t.id)">×</button>
-                    </span>
-                    <span v-if="tagEingabeFuer === d.id" class="rb-tag-eingabe-zeile">
-                      <input
-                        v-model="neuerTagName"
-                        list="rb-tag-vorschlaege"
-                        type="text"
-                        class="rb-tag-eingabe"
-                        placeholder="Schlagwort …"
-                        autofocus
-                        @keydown.enter="tagHinzufuegen(d.id)"
-                        @keydown.esc="tagEingabeFuer = null"
-                        @blur="tagHinzufuegen(d.id)"
-                      >
-                    </span>
-                    <button v-else type="button" class="rb-tag-hinzufuegen" @click="tagEingabeOeffnen(d.id)">+ Tag</button>
-                  </div>
-                </li>
-              </ul>
-            </template>
-
-            <h3 v-if="verlaufEintraege.length" class="rb-unterueberschrift">Weitere Dateien</h3>
-            <ul v-if="weitereDateien.length" class="rb-dateiliste">
-              <li v-for="d in weitereDateien" :key="d.id" class="rb-dateizeile">
-                <div class="rb-dateizeile-reihe">
-                  <button
-                    type="button"
-                    class="rb-dateizeile-knopf"
-                    :title="d.url ? 'Link öffnen' : 'Vorschau öffnen'"
-                    @click="d.url ? linkOeffnen(d.url) : vorschauOeffnen(d)"
-                  >
-                    <span class="rb-dateisymbol-klein">{{ d.url ? '🔗' : dateisymbol(d.mime) }}</span>
-                    <span class="rb-dateiname" :title="d.name">{{ d.url ? d.name.replace(/\.url$/i, '') : d.name }}</span>
-                    <span v-if="!d.url" class="rb-gedaempft rb-dateigroesse">
-                      {{ groesseFormatieren(d.groesse) }} · {{ hochladeDatumFormatieren(d.geaendert) }}
-                    </span>
-                  </button>
-                  <button type="button" class="rb-datei-loeschen" title="Löschen" @click="dateiLoeschen(d)">🗑</button>
-                </div>
-
-                <div class="rb-tag-bereich">
-                  <span v-for="t in d.tags" :key="t.id" class="rb-tag-chip">
-                    {{ t.name }}
-                    <button type="button" class="rb-tag-entfernen" title="Schlagwort entfernen" @click="tagEntfernen(d.id, t.id)">×</button>
-                  </span>
-                  <span v-if="tagEingabeFuer === d.id" class="rb-tag-eingabe-zeile">
-                    <input
-                      v-model="neuerTagName"
-                      list="rb-tag-vorschlaege"
-                      type="text"
-                      class="rb-tag-eingabe"
-                      placeholder="Schlagwort …"
-                      autofocus
-                      @keydown.enter="tagHinzufuegen(d.id)"
-                      @keydown.esc="tagEingabeFuer = null"
-                      @blur="tagHinzufuegen(d.id)"
-                    >
-                  </span>
-                  <button v-else type="button" class="rb-tag-hinzufuegen" @click="tagEingabeOeffnen(d.id)">+ Tag</button>
-                </div>
-              </li>
-            </ul>
-            <p v-if="!verlaufEintraege.length && !weitereDateien.length" class="rb-gedaempft rb-keine-dateien">
-              Noch keine Dateien in diesem Ordner.
-            </p>
-
-            <datalist id="rb-tag-vorschlaege">
-              <option v-for="name in alleTagNamen" :key="name" :value="name"></option>
-            </datalist>
-
-            <div class="rb-ablage-aktionen">
-              <label class="rb-hochladen" :class="{ 'rb-hochladen-aktiv': hochladeLaeuft }">
-                <span v-if="hochladeLaeuft"><span class="rb-spinner"></span> Wird hochgeladen …</span>
-                <span v-else>+ Datei ablegen</span>
-                <input ref="dateiInput" type="file" :disabled="hochladeLaeuft" class="rb-datei-input" @change="dateiAusgewaehlt">
-              </label>
-
-              <button v-if="!linkFormularOffen" type="button" class="rb-hochladen" @click="linkFormularOffen = true">
-                + Link ablegen
-              </button>
-              <div v-else class="rb-link-formular">
-                <input v-model="linkBezeichnung" type="text" class="rb-eingabe" placeholder="Bezeichnung (z. B. Rechnung 2026-042)">
-                <input v-model="linkUrl" type="url" class="rb-eingabe" placeholder="https://paperless.example.com/documents/...">
-                <div class="rb-link-formular-aktionen">
-                  <button type="button" class="rb-knopf-sekundaer" @click="linkFormularOffen = false">Abbrechen</button>
-                  <button type="button" class="rb-knopf-primaer" :disabled="linkSpeichernLaeuft" @click="linkSpeichern">
-                    {{ linkSpeichernLaeuft ? 'Speichert …' : 'Speichern' }}
-                  </button>
-                </div>
-              </div>
-
-              <button v-if="!notizFormularOffen" type="button" class="rb-hochladen" @click="notizFormularOffen = true">
-                + Telefonat / Notiz
-              </button>
-              <div v-else class="rb-link-formular">
-                <select v-model="notizArt" class="rb-eingabe">
-                  <option value="Telefonat">Telefonat</option>
-                  <option value="Notiz">Notiz</option>
-                </select>
-                <input v-model="notizAnsprechpartner" type="text" class="rb-eingabe" placeholder="Ansprechpartner (optional)">
-                <textarea v-model="notizText" rows="4" class="rb-eingabe" placeholder="Was wurde besprochen?"></textarea>
-                <div class="rb-link-formular-aktionen">
-                  <button type="button" class="rb-knopf-sekundaer" @click="notizFormularOffen = false">Abbrechen</button>
-                  <button type="button" class="rb-knopf-primaer" :disabled="notizSpeichernLaeuft" @click="notizSpeichern">
-                    {{ notizSpeichernLaeuft ? 'Speichert …' : 'Speichern' }}
-                  </button>
-                </div>
-              </div>
-
-              <button v-if="!posteingangOffen" type="button" class="rb-hochladen" @click="posteingangOeffnen">
-                📧 Aus Posteingang zuordnen
-              </button>
-              <div v-else class="rb-link-formular">
-                <div class="rb-postfach-kopf">
-                  <span>Posteingang</span>
-                  <button type="button" class="rb-tag-entfernen" title="Schließen" @click="posteingangOffen = false">×</button>
-                </div>
-                <p v-if="postfachLaeuft" class="rb-gedaempft"><span class="rb-spinner"></span> Lädt …</p>
-                <p v-else-if="postfachFehler" class="rb-meldung rb-meldung-fehler">{{ postfachFehler }}</p>
-                <p v-else-if="!postfachNachrichten.length" class="rb-gedaempft">Keine Nachrichten gefunden.</p>
-                <ul v-else class="rb-postfachliste">
-                  <li v-for="n in postfachNachrichten" :key="n.databaseId" class="rb-postfachzeile">
-                    <div class="rb-postfachzeile-info">
-                      <span class="rb-dateiname">{{ n.subject || '(kein Betreff)' }}</span>
-                      <span class="rb-gedaempft rb-postfach-absender">{{ postfachAbsender(n) }}</span>
-                    </div>
-                    <button
-                      type="button"
-                      class="rb-knopf-sekundaer"
-                      :disabled="zuordnenLaeuftFuer === n.databaseId"
-                      @click="nachrichtZuordnen(n)"
-                    >
-                      {{ zuordnenLaeuftFuer === n.databaseId ? '…' : 'Zuordnen' }}
-                    </button>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </template>
-        </aside>
+        <TicketAblage
+          :id="id"
+          :dateien="dateien"
+          :ordnerPfad="ordnerPfad"
+          :ordnerFehler="ordnerFehler"
+          @aktualisiert="ablageUebernehmen"
+          @fehler="fehler = $event"
+          @vorschau-oeffnen="vorschauOeffnen"
+          @datei-geloescht="dateiGeloescht"
+        />
       </div>
 
-      <div v-if="vorschauDatei" class="rb-vorschau-overlay" @click.self="vorschauSchliessen" @keydown.esc="vorschauSchliessen">
-        <div class="rb-vorschau-fenster">
-          <header class="rb-vorschau-kopf">
-            <span class="rb-vorschau-titel" :title="vorschauDatei.name">{{ vorschauDatei.name }}</span>
-            <div class="rb-vorschau-kopf-aktionen">
-              <a :href="vorschauDirektUrl(vorschauDatei.id)" target="_blank" rel="noopener" class="rb-vorschau-link-knopf">
-                In Dateien öffnen ↗
-              </a>
-              <button type="button" class="rb-vorschau-schliessen" title="Schließen" @click="vorschauSchliessen">×</button>
-            </div>
-          </header>
-          <div class="rb-vorschau-inhalt">
-            <div v-if="vorschauDatei.notiz" class="rb-vorschau-text">
-              <p class="rb-vorschau-notiz-kopf">
-                <strong>{{ vorschauDatei.notiz.art === 'E-Mail' ? vorschauDatei.notiz.betreff : vorschauDatei.notiz.art }}</strong>
-                <span v-if="vorschauDatei.notiz.datum" class="rb-gedaempft"> — {{ vorschauDatei.notiz.datum }}</span>
-              </p>
-              <p v-if="vorschauDatei.notiz.art === 'E-Mail'" class="rb-gedaempft">Von: {{ vorschauDatei.notiz.von }}</p>
-              <p v-else-if="vorschauDatei.notiz.ansprechpartner" class="rb-gedaempft">
-                Ansprechpartner: {{ vorschauDatei.notiz.ansprechpartner }}
-              </p>
-              <p class="rb-vorschau-notiztext">{{ vorschauDatei.notiz.text }}</p>
-            </div>
-
-            <div v-else-if="vorschauDatei.eml" class="rb-vorschau-text">
-              <p><strong>Von:</strong> {{ vorschauDatei.eml.von || '—' }}</p>
-              <p><strong>Betreff:</strong> {{ vorschauDatei.eml.betreff || '—' }}</p>
-              <p><strong>Datum:</strong> {{ vorschauDatei.eml.datum || '—' }}</p>
-              <p class="rb-gedaempft">Vollständige E-Mail über „In Dateien öffnen" ansehen.</p>
-            </div>
-
-            <template v-else>
-              <img
-                v-show="!vorschauGrossFehler"
-                :src="vorschauUrl(vorschauDatei.id, 1400)"
-                :alt="vorschauDatei.name"
-                class="rb-vorschau-grossbild"
-                @error="vorschauGrossFehlgeschlagen"
-              >
-              <p v-if="vorschauGrossFehler" class="rb-gedaempft">
-                {{ dateisymbol(vorschauDatei.mime) }} Für diesen Dateityp gibt es keine Bildvorschau — über „In Dateien öffnen" ansehen.
-              </p>
-            </template>
-          </div>
-        </div>
-      </div>
+      <DateiVorschau
+        v-if="vorschauDatei"
+        :key="vorschauDatei.id"
+        :datei="vorschauDatei"
+        @schliessen="vorschauSchliessen"
+      />
     </template>
   </div>
 </template>
@@ -774,6 +325,7 @@ async function tagEntfernen(dateiId, tagId) {
   padding: 32px 40px;
   max-width: none;
 }
+
 .rb-zurueck {
   display: inline-block;
   margin-bottom: 20px;
@@ -781,6 +333,7 @@ async function tagEntfernen(dateiId, tagId) {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   text-decoration: none;
 }
+
 .rb-zurueck:hover {
   color: var(--color-primary-element-light, #cde5f7);
 }
@@ -788,6 +341,7 @@ async function tagEntfernen(dateiId, tagId) {
 .rb-kopf {
   margin-bottom: 24px;
 }
+
 .rb-projektname {
   display: block;
   font-size: 0.85em;
@@ -795,6 +349,7 @@ async function tagEntfernen(dateiId, tagId) {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   margin-bottom: 2px;
 }
+
 .rb-kopf h1 {
   margin: 0;
   font-size: 1.4em;
@@ -803,9 +358,21 @@ async function tagEntfernen(dateiId, tagId) {
 }
 
 .rb-layout {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 20px;
+  align-items: start;
+}
+
+.rb-layout > .rb-karte {
+  /* Ohne das hier: eine einzelne lange, leerzeichenlose Zeichenkette
+     (z. B. ein langer Dateiname) zwingt diese Spalte auf ihre
+     Inhalts-Mindestbreite, egal was "1fr 1fr" eigentlich vorgibt — die
+     rechte Spalte wird dann breiter als die Hälfte, das Layout läuft aus
+     dem Bildschirm. min-width: 0 erlaubt dem Grid-Item, unter seine
+     Inhalts-Mindestbreite zu schrumpfen, sodass stattdessen der Inhalt
+     selbst umbricht/abgeschnitten wird (siehe .rb-dateiname). */
+  min-width: 0;
 }
 
 .rb-karte {
@@ -814,10 +381,6 @@ async function tagEntfernen(dateiId, tagId) {
   border-radius: var(--border-radius-large, 10px);
   padding: 24px;
 }
-.rb-kartentitel {
-  margin: 0 0 16px;
-  font-size: 1.1em;
-}
 
 .rb-feld-breit {
   display: flex;
@@ -825,10 +388,12 @@ async function tagEntfernen(dateiId, tagId) {
   gap: 6px;
   margin-bottom: 16px;
 }
+
 .rb-label {
   font-size: 0.8em;
   color: var(--color-text-maxcontrast, #767676);
 }
+
 .rb-eingabe {
   padding: 7px 10px;
   border-radius: var(--border-radius, 6px);
@@ -839,10 +404,12 @@ async function tagEntfernen(dateiId, tagId) {
   width: 100%;
   box-sizing: border-box;
 }
+
 .rb-eingabe:focus-visible {
   outline: 2px solid var(--color-primary-element, #0069c2);
   outline-offset: -1px;
 }
+
 textarea.rb-eingabe {
   resize: vertical;
   font-family: inherit;
@@ -853,16 +420,19 @@ textarea.rb-eingabe {
   grid-template-columns: 1fr;
   gap: 16px;
 }
+
 .rb-raster label {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
+
 .rb-fortschritt-zeile {
   display: flex;
   align-items: center;
   gap: 10px;
 }
+
 .rb-schieber {
   flex: 1;
 }
@@ -872,6 +442,17 @@ textarea.rb-eingabe {
   padding-top: 16px;
   border-top: 1px solid var(--color-border, #eee);
 }
+
+.rb-rechnung-feld .rb-label {
+  color: var(--color-main-text, #222);
+}
+
+.rb-kommentare textarea.rb-eingabe {
+  width: 100%;
+  margin-bottom: 8px;
+  resize: vertical;
+}
+
 .rb-knopf-primaer {
   display: inline-flex;
   align-items: center;
@@ -885,9 +466,11 @@ textarea.rb-eingabe {
   font-weight: 600;
   cursor: pointer;
 }
+
 .rb-knopf-primaer:hover:not(:disabled) {
   filter: brightness(1.08);
 }
+
 .rb-knopf-primaer:disabled {
   opacity: 0.7;
   cursor: default;
@@ -899,264 +482,19 @@ textarea.rb-eingabe {
   margin-bottom: 16px;
   font-size: 0.9em;
 }
+
 .rb-meldung-fehler {
   background: #fdecea;
   color: #c62828;
 }
+
 .rb-meldung-erfolg {
   background: #eaf6ea;
   color: #2e7d32;
 }
 
-.rb-ordnerpfad {
-  margin: 0 0 8px;
-  font-size: 0.85em;
-  line-height: 1.5;
-  word-break: break-word;
-}
-.rb-ordnerpfad code {
-  background: var(--color-background-hover, #f5f5f7);
-  padding: 2px 6px;
-  border-radius: 4px;
-  display: inline-block;
-  margin-top: 2px;
-}
-.rb-ordner-oeffnen {
-  display: inline-block;
-  margin-bottom: 16px;
-  font-size: 0.85em;
-  color: var(--color-primary-element, #0069c2);
-  text-decoration: none;
-}
-.rb-ordner-oeffnen:hover {
-  text-decoration: underline;
-}
 .rb-gedaempft {
   color: var(--color-text-maxcontrast, #767676);
-}
-
-/* Kompakte Liste statt Kacheln — die eigentliche Vorschau lebt jetzt im
-   eigenen, größeren Fenster (siehe .rb-vorschau-overlay weiter unten). */
-.rb-dateiliste {
-  list-style: none;
-  margin: 0 0 16px;
-  padding: 0;
-}
-.rb-dateizeile {
-  border-bottom: 1px solid var(--color-border, #eee);
-  padding: 6px 0;
-}
-.rb-dateizeile:last-child {
-  border-bottom: none;
-}
-.rb-dateizeile-reihe {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.rb-dateizeile-knopf {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-  background: none;
-  border: none;
-  padding: 4px 2px;
-  cursor: pointer;
-  text-align: left;
-  border-radius: var(--border-radius, 6px);
-}
-.rb-dateizeile-knopf:hover {
-  background: var(--color-background-hover, #f5f5f7);
-}
-.rb-datei-loeschen {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: var(--border-radius, 6px);
-  opacity: 0.5;
-  font-size: 0.9em;
-}
-.rb-datei-loeschen:hover {
-  opacity: 1;
-  background: #fdecea;
-}
-.rb-dateisymbol-klein {
-  font-size: 1.1em;
-  flex-shrink: 0;
-}
-
-.rb-dateiname {
-  font-size: 0.85em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  color: var(--color-main-text, #222);
-}
-.rb-dateigroesse {
-  font-size: 0.75em;
-  flex-shrink: 0;
-}
-.rb-keine-dateien {
-  margin: 0 0 16px;
-}
-.rb-unterueberschrift {
-  font-size: 0.85em;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--color-text-maxcontrast, #767676);
-  margin: 16px 0 4px;
-}
-.rb-unterueberschrift:first-of-type {
-  margin-top: 0;
-}
-
-.rb-postfach-kopf {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.rb-postfachliste {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 320px;
-  overflow-y: auto;
-}
-.rb-postfachzeile {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--color-border, #eee);
-}
-.rb-postfachzeile:last-child {
-  border-bottom: none;
-}
-.rb-postfachzeile-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow: hidden;
-  flex: 1;
-}
-.rb-postfachzeile-info .rb-dateiname {
-  font-size: 0.85em;
-}
-.rb-postfach-absender {
-  font-size: 0.75em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rb-tag-bereich {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-  margin-top: 2px;
-}
-.rb-tag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  background: var(--color-primary-element-light, #e5f0fa);
-  color: var(--color-main-text, #222);
-  font-size: 0.7em;
-  padding: 1px 4px 1px 8px;
-  border-radius: 10px;
-  line-height: 1.6;
-}
-.rb-tag-entfernen {
-  background: none;
-  border: none;
-  color: inherit;
-  cursor: pointer;
-  font-size: 1.1em;
-  line-height: 1;
-  padding: 0 2px;
-}
-.rb-tag-hinzufuegen {
-  background: none;
-  border: 1px dashed var(--color-border-dark, #b8b8bb);
-  border-radius: 10px;
-  font-size: 0.7em;
-  padding: 1px 8px;
-  cursor: pointer;
-  color: var(--color-text-maxcontrast, #767676);
-}
-.rb-tag-hinzufuegen:hover {
-  border-color: var(--color-primary-element, #0069c2);
-  color: var(--color-primary-element, #0069c2);
-}
-.rb-tag-eingabe {
-  font-size: 0.75em;
-  padding: 2px 6px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border, #d8d8db);
-  width: 100px;
-}
-
-.rb-ablage-aktionen {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-}
-.rb-link-formular {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--color-border, #e0e0e3);
-  border-radius: var(--border-radius, 6px);
-}
-.rb-link-formular-aktionen {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
-.rb-knopf-sekundaer {
-  padding: 6px 14px;
-  border-radius: var(--border-radius, 6px);
-  border: 1px solid var(--color-border, #d8d8db);
-  background: var(--color-main-background, #fff);
-  color: var(--color-main-text, #222);
-  cursor: pointer;
-  font-size: 0.9em;
-}
-
-.rb-hochladen {
-  display: block;
-  text-align: center;
-  padding: 8px 18px;
-  border: 1px dashed var(--color-border-dark, #b8b8bb);
-  border-radius: var(--border-radius, 6px);
-  cursor: pointer;
-  font-size: 0.9em;
-  color: var(--color-main-text, #222);
-}
-.rb-hochladen:hover {
-  border-color: var(--color-primary-element, #0069c2);
-}
-.rb-hochladen-aktiv {
-  cursor: default;
-  color: var(--color-text-maxcontrast, #767676);
-}
-.rb-datei-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  overflow: hidden;
 }
 
 .rb-zustand {
@@ -1164,9 +502,11 @@ textarea.rb-eingabe {
   text-align: center;
   color: var(--color-text-maxcontrast, #767676);
 }
+
 .rb-zustand-fehler {
   color: #c62828;
 }
+
 .rb-spinner {
   display: inline-block;
   width: 14px;
@@ -1178,12 +518,10 @@ textarea.rb-eingabe {
   vertical-align: middle;
   margin-right: 4px;
 }
+
 .rb-spinner-hell {
   border-color: rgba(255, 255, 255, 0.4);
   border-top-color: #fff;
-}
-@keyframes rb-drehen {
-  to { transform: rotate(360deg); }
 }
 
 /* Unterhalb dieser Breite reicht der Platz nicht mehr für zwei Spalten
@@ -1199,95 +537,12 @@ textarea.rb-eingabe {
   .rb-raster {
     grid-template-columns: 1fr;
   }
+  .rb-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
-/* ─── Große Vorschau, als eigenes Fenster über allem ─────────────────── */
-.rb-vorschau-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-  padding: 24px;
+@keyframes rb-drehen {
+  to { transform: rotate(360deg); }
 }
-.rb-vorschau-fenster {
-  background: var(--color-main-background, #fff);
-  border-radius: var(--border-radius-large, 10px);
-  max-width: 90vw;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.rb-vorschau-kopf {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-border, #e0e0e3);
-}
-.rb-vorschau-titel {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.rb-vorschau-kopf-aktionen {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
-.rb-vorschau-link-knopf {
-  font-size: 0.85em;
-  color: var(--color-primary-element, #0069c2);
-  text-decoration: none;
-  white-space: nowrap;
-}
-.rb-vorschau-link-knopf:hover {
-  text-decoration: underline;
-}
-.rb-vorschau-schliessen {
-  background: none;
-  border: none;
-  font-size: 1.6em;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--color-text-maxcontrast, #767676);
-  padding: 0 4px;
-}
-.rb-vorschau-schliessen:hover {
-  color: var(--color-main-text, #222);
-}
-.rb-vorschau-inhalt {
-  padding: 16px;
-  overflow: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-}
-.rb-vorschau-grossbild {
-  max-width: 100%;
-  max-height: calc(90vh - 100px);
-  object-fit: contain;
-  display: block;
-}
-.rb-vorschau-text {
-  text-align: left;
-  max-width: 480px;
-  width: 100%;
-}
-.rb-vorschau-notiz-kopf {
-  margin: 0 0 8px;
-}
-.rb-vorschau-notiztext {
-  white-space: pre-wrap;
-  line-height: 1.5;
-}
-/* Schlägt das Laden fehl (Dateityp ohne Bildvorschau), blendet Vue das
-   Bild-Element über v-show aus — der Hinweistext übernimmt (siehe Template). */
 </style>
